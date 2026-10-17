@@ -88,6 +88,7 @@
   color: #ffffff;
 }
 
+
 /* -------------------------------------------------------------
    1. Navbar
    ------------------------------------------------------------- */
@@ -100,15 +101,18 @@
 }
 
 .nav-container {
-  max-width: 1120px;
+  width: 100%;
+  max-width: 1400px;
   margin: 0 auto;
-  padding: 0.85rem 1.5rem;
-  display: flex;
+  padding: 0.85rem 2rem;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  justify-content: space-between;
+  box-sizing: border-box;
 }
 
 .nav-logo {
+  justify-self: start;
   font-size: 1.4rem;
   font-weight: 800;
   color: var(--primary-color);
@@ -120,6 +124,7 @@
   display: flex;
   gap: 1.75rem;
   align-items: center;
+  justify-content: center;
 }
 
 .nav-link {
@@ -138,7 +143,9 @@
 .nav-actions {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
 }
+
 
 /* -------------------------------------------------------------
    2. Hero Section
@@ -353,6 +360,33 @@
 }
 
 @media (max-width: 640px) {
+  .nav-container {
+    grid-template-columns: 1fr auto;
+    row-gap: 1rem;
+  }
+
+  .nav-logo {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .nav-actions {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .nav-links {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 0.85rem 1rem;
+  }
+
+  .nav-link {
+    font-size: 0.875rem;
+  }
+
   .hero-heading {
     font-size: 2.25rem;
   }
@@ -368,14 +402,5 @@
   .section-title {
     font-size: 1.65rem;
   }
-
-  .nav-links {
-    gap: 1rem;
-  }
-
-  .nav-link {
-    font-size: 0.875rem;
-  }
 }
-
 
