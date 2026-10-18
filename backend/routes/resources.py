@@ -76,9 +76,23 @@ def get_resources():
         filtered_resources.append(resource)
 
     filtered_resources.sort(key=lambda resource: resource["title"].lower())
-    
+
     return {
         "message": "Resources fetched successfully",
         "count": len(filtered_resources),
         "resources": filtered_resources
     }
+
+@resources_bp.route("/resources/<int:resource_id>")
+def get_resource_by_id(resource_id):
+    for resource in resources_data:
+        if resource["id"] == resource_id:
+            return {
+                "message": "Resource fetched successfully",
+                "resource": resource
+            }
+
+    return {
+        "message": "Resource not found"
+    }, 404
+
