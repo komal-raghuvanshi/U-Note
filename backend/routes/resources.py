@@ -96,3 +96,16 @@ def get_resource_by_id(resource_id):
         "message": "Resource not found"
     }, 404
 
+
+@resources_bp.route("/resource-types")
+def get_resource_types():
+    resource_types = []
+
+    for resource in resources_data:
+        if resource["type"] not in resource_types:
+            resource_types.append(resource["type"])
+
+    return {
+        "message": "Resource types fetched successfully",
+        "resource_types": resource_types
+    }
