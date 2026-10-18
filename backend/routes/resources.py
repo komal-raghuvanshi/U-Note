@@ -49,6 +49,8 @@ def get_resources():
     semester = request.args.get("semester", type=int)
     subject = request.args.get("subject")
     unit = request.args.get("unit", type=int)
+    search = request.args.get("search")
+    resource_type = request.args.get("type")
 
     filtered_resources = []
 
@@ -65,8 +67,16 @@ def get_resources():
         if unit is not None and resource["unit"] != unit:
             continue
 
+        if search and search.lower() not in resource["title"].lower():
+            continue
+
+        if resource_type and resource["type"].lower() != resource_type.lower():
+            continue
+
         filtered_resources.append(resource)
 
+    filtered_resources.sort(key=lambda resource: resource["title"].lower())
+    
     return {
         "message": "Resources fetched successfully",
         "count": len(filtered_resources),
