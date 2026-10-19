@@ -1,8 +1,17 @@
 import Navbar from './components/Navbar'
 import Footer from './components/Footer'
 import './App.css'
+import { useEffect, useState } from 'react'
 
 function App() {
+  const [resources, setResources] = useState([])
+
+  useEffect(() => {
+    fetch('http://127.0.0.1:5000/resources')
+      .then((response) => response.json())
+      .then((data) => setResources(data.resources))
+      .catch((error) => console.error('Error fetching resources:', error))
+}, [])
   const resourceTypes = [
     {
       title: 'Handwritten Notes',
@@ -100,27 +109,35 @@ function App() {
           </div>
         </section>
 
-        {/* 3. Resource Types */}
+        
+        {/* 3. Resources */}
         <section className="resources-section" id="resources">
           <div className="section-container">
             <div className="section-header">
-              <h2 className="section-title">Resource Types</h2>
+              <h2 className="section-title">Study Resources</h2>
               <p className="section-description">
-                Explore different types of study resources curated for comprehensive semester preparation.
+                Explore study materials available on U-NOTE.
               </p>
             </div>
 
             <div className="resources-grid">
-              {resourceTypes.map((resource, index) => (
-                <div key={index} className="resource-card">
+              {resources.map((resource) => (
+                <div key={resource.id} className="resource-card">
                   <div className="card-top-bar"></div>
                   <h3 className="resource-title">{resource.title}</h3>
-                  <p className="resource-description">{resource.description}</p>
+                  <p className="resource-description">
+                    {resource.branch} · Semester {resource.semester}
+                  </p>
+                  <p className="resource-description">
+                    {resource.subject} · Unit {resource.unit}
+                  </p>
+                  <p className="resource-description">{resource.type}</p>
                 </div>
               ))}
             </div>
           </div>
         </section>
+
       </main>
 
       <Footer />
