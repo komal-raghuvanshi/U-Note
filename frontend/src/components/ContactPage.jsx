@@ -1,0 +1,150 @@
+import { useState } from 'react'
+
+function ContactPage() {
+  const [submitted, setSubmitted] = useState(false)
+  const [formData, setFormData] = useState({
+    name: '',
+    email: '',
+    subject: '',
+    message: ''
+  })
+
+  const handleChange = (e) => {
+    const { name, value } = e.target
+    setFormData((prev) => ({ ...prev, [name]: value }))
+  }
+
+  const handleSubmit = (e) => {
+    e.preventDefault()
+    setSubmitted(true)
+  }
+
+  return (
+    <div className="contact-page-container">
+      <div className="section-container">
+        <div className="page-header-box text-center">
+          
+          <h1 className="page-title">Contact U-NOTE Team</h1>
+          <p className="page-subtitle">
+            Have suggestions, missing subject requests, or project feedback? Send us a message!
+          </p>
+        </div>
+
+        <div className="prototype-badge-box max-w-680">
+          <span className="prototype-badge-pill">UI Prototype</span>
+          <p className="prototype-badge-text">
+            Contact form submissions are currently front-end preview mode until the notification backend is linked.
+          </p>
+        </div>
+
+        <div className="contact-card-wrapper">
+          {submitted ? (
+            <div className="submission-success-card">
+              <h3>Message Received!</h3>
+              <p>
+                Thank you, <strong>{formData.name}</strong>. Your message regarding <em>"{formData.subject}"</em> has been received.
+              </p>
+              <p className="success-note">
+                Our student team will review your feedback and get back to you at {formData.email}.
+              </p>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => {
+                  setSubmitted(false)
+                  setFormData({ name: '', email: '', subject: '', message: '' })
+                }}
+              >
+                Send Another Message
+              </button>
+            </div>
+          ) : (
+            <form className="contact-form" onSubmit={handleSubmit}>
+              <div className="form-row">
+                <div className="form-group">
+                  <label htmlFor="name">Your Name</label>
+                  <input
+                    type="text"
+                    id="name"
+                    name="name"
+                    className="form-control"
+                    placeholder="Enter your full name"
+                    value={formData.name}
+                    onChange={handleChange}
+                    required
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label htmlFor="email">Email Address</label>
+                  <input
+                    type="email"
+                    id="email"
+                    name="email"
+                    className="form-control"
+                    placeholder="name@college.edu or gmail"
+                    value={formData.email}
+                    onChange={handleChange}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="subject">Subject / Inquiry Type</label>
+                <input
+                  type="text"
+                  id="subject"
+                  name="subject"
+                  className="form-control"
+                  placeholder="e.g. Request new subject notes or report broken link"
+                  value={formData.subject}
+                  onChange={handleChange}
+                  required
+                />
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="message">Message</label>
+                <textarea
+                  id="message"
+                  name="message"
+                  rows="5"
+                  className="form-control"
+                  placeholder="Describe your inquiry, feedback, or resource request..."
+                  value={formData.message}
+                  onChange={handleChange}
+                  required
+                ></textarea>
+              </div>
+
+              <div className="form-button-row">
+                <button type="submit" className="btn btn-primary">
+                  Send Message
+                </button>
+              </div>
+            </form>
+          )}
+
+          {/* Quick Info box */}
+          <div className="contact-info-footer">
+            <div className="info-item">
+              <span className="info-title">College Minor Project</span>
+              <span className="info-sub">RGPV Affiliated Colleges</span>
+            </div>
+            <div className="info-item">
+              <span className="info-title">Platform Scope</span>
+              <span className="info-sub">Academic Study Resources &amp; Notes</span>
+            </div>
+            <div className="info-item">
+              <span className="info-title">Location</span>
+              <span className="info-sub">Bhopal, Madhya Pradesh</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export default ContactPage
