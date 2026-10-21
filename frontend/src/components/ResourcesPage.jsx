@@ -82,6 +82,11 @@ function ResourcesPage({ onSelectResource, onShareClick, initialType = '' }) {
     loadResources({ semester: newSemester })
   }
 
+  const handleSubjectChange = (newSubject) => {
+    setSubject(newSubject)
+    loadResources({ subject: newSubject })
+  }
+
   const handleUnitChange = (newUnit) => {
     setUnit(newUnit)
     loadResources({ unit: newUnit })
@@ -188,6 +193,29 @@ function ResourcesPage({ onSelectResource, onShareClick, initialType = '' }) {
                 ))}
               </select>
             </div>
+
+            
+            <div className="filter-item">
+              <label htmlFor="filter-subject">Subject</label>
+              <select
+                id="filter-subject"
+                className="form-control"
+                value={subject}
+                onChange={(e) => handleSubjectChange(e.target.value)}
+              >
+                <option value="">All Subjects</option>
+                <option value="Artificial Intelligence">
+                  Artificial Intelligence
+                </option>
+                <option value="Machine Learning">
+                  Machine Learning
+                </option>
+                <option value="Software Engineering">
+                  Software Engineering
+                </option>
+              </select>
+            </div>
+
 
             <div className="filter-item">
               <label htmlFor="filter-unit">Unit</label>

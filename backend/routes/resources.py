@@ -1,15 +1,33 @@
 
-from flask import Blueprint, request
+import os
+from uuid import uuid4
+from flask import Blueprint, request, jsonify, current_app
+from werkzeug.utils import secure_filename
 
 resources_bp = Blueprint("resources", __name__)
+ALLOWED_EXTENSIONS = {"pdf", "png", "jpg", "jpeg"}
+
+UPLOAD_FOLDER = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "uploads"
+)
+
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+
+def allowed_file(filename):
+    return (
+        "." in filename
+        and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
+    )
 
 resources_data = [
     {
         "id": 1,
-        "title": "Python Notes",
+        "title": "Artificial Intelligence Notes",
         "branch": "AIML",
-        "semester": 3,
-        "subject": "Python",
+        "semester": 4,
+        "subject": "Artificial Intelligence",
         "unit": 1,
         "type": "PDF Notes"
     },
@@ -17,27 +35,18 @@ resources_data = [
         "id": 2,
         "title": "Machine Learning Notes",
         "branch": "AIML",
-        "semester": 3,
+        "semester": 4,
         "subject": "Machine Learning",
-        "unit": 2,
+        "unit": 1,
         "type": "Handwritten Notes"
     },
     {
         "id": 3,
-        "title": "DBMS Notes",
-        "branch": "CSE",
-        "semester": 3,
-        "subject": "DBMS",
-        "unit": 1,
-        "type": "PDF Notes"
-    },
-    {
-        "id": 4,
-        "title": "Python Unit 2 Notes",
+        "title": "Software Engineering Notes",
         "branch": "AIML",
         "semester": 4,
-        "subject": "Python",
-        "unit": 2,
+        "subject": "Software Engineering",
+        "unit": 1,
         "type": "Class Notes"
     }
 ]
@@ -109,3 +118,62 @@ def get_resource_types():
         "message": "Resource types fetched successfully",
         "resource_types": resource_types
     }
+
+@resources_bp.route("/resources/upload", methods=["POST"])
+def upload_resource():
+    if "file" not in request.files:
+        return jsonify({
+            "success": False,
+            "message": "No file provided"
+        }), 400
+
+    file = request.files["file"]
+
+    if not file.filename or not file.filename.strip():
+        return jsonify({
+            "success": False,
+            "message": "No file selected"
+        }), 400
+
+    if not allowed_file(file.filename):
+        return jsonify({
+            "success": False,
+            "message": "Only PDF, PNG, JPG and JPEG files are allowed"
+        }), 400
+
+    # Generate a safe, unique filename
+    original_name = secure_filename(file.filename)
+
+    if not original_name:
+        return jsonify({
+            "success": False,
+            "message": "Invalid filename"
+        }), 400
+
+    extension = original_name.rsplit(".", 1)[1].lower()
+    saved_filename = f"{uuid4().hex}.{extension}"
+
+    file_path = os.path.join(UPLOAD_FOLDER, saved_filename)
+
+    try:
+        file.save(file_path)
+
+        if os.path.getsize(file_path) == 0:
+            os.remove(file_path)
+            return jsonify({
+                "success": False,
+                "message": "Empty files are not allowed"
+            }), 400
+
+    except OSError:
+        current_app.logger.exception("File upload failed")
+        return jsonify({
+            "success": False,
+            "message": "Unable to save uploaded file"
+        }), 500
+
+    return jsonify({
+        "success": True,
+        "message": "Resource uploaded successfully",
+        "filename": saved_filename
+    }), 201

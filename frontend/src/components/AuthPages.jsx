@@ -15,17 +15,49 @@ function AuthPages({ mode = 'login', onNavigate, onLoginSuccess }) {
     setFormData((prev) => ({ ...prev, [name]: value }))
   }
 
-  const handleSubmit = (e) => {
+  
+  const handleSubmit = async (e) => {
     e.preventDefault()
-    // Simulate user login for demo / UI testing
-    onLoginSuccess({
-      name: formData.name || (formData.email.split('@')[0] || 'RGPV Student'),
-      email: formData.email,
-      branch: formData.branch || 'AIML',
-      semester: formData.semester || 4
-    })
-    onNavigate('/')
+
+    try {
+      const response = await fetch(
+        `http://127.0.0.1:5000/${isLogin ? 'login' : 'signup'}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            name: formData.name,
+            email: formData.email,
+            password: formData.password,
+            branch: formData.branch,
+            semester: Number(formData.semester)
+          })
+        }
+      )
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        alert(data.error || 'Something went wrong')
+        return
+      }
+
+      onLoginSuccess({
+        ...data.user,
+        branch: data.user.branch || formData.branch,
+        semester: data.user.semester
+          ? Number(data.user.semester.replace('Semester ', ''))
+          : Number(formData.semester)
+      })
+
+      onNavigate('/')
+    } catch (error) {
+      alert('Unable to connect to the server. Please try again.')
+    }
   }
+
 
   const handleDemoSignIn = () => {
     onLoginSuccess({

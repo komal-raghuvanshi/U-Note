@@ -1,0 +1,98 @@
+<mxfile host="app.diagrams.net">
+  <diagram name="Page-1" id="kmSsVTBRZjP_6T4K7m2i">
+    <mxGraphModel grid="1" page="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="_uRkcn7vLzeU5v2Ib7nh-1" parent="1" style="shape=umlActor;verticalLabelPosition=bottom;verticalAlign=top;html=1;" value="Student" vertex="1">
+          <mxGeometry height="60" width="30" x="50" y="90" as="geometry" />
+        </mxCell>
+        <mxCell id="_uRkcn7vLzeU5v2Ib7nh-5" parent="1" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;html=1;container=1;dropTarget=0;collapsible=0;recursiveResize=0;outlineConnect=0;portConstraint=eastwest;newEdgeStyle={&quot;edgeStyle&quot;:&quot;sequenceEdgeStyle&quot;,&quot;libavoidRouting&quot;:0,&quot;curved&quot;:0,&quot;rounded&quot;:0};" value="Frontend" vertex="1">
+          <mxGeometry height="300" width="100" x="280" y="90" as="geometry" />
+        </mxCell>
+        <mxCell id="_uRkcn7vLzeU5v2Ib7nh-6" parent="1" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;html=1;container=1;dropTarget=0;collapsible=0;recursiveResize=0;outlineConnect=0;portConstraint=eastwest;newEdgeStyle={&quot;edgeStyle&quot;:&quot;sequenceEdgeStyle&quot;,&quot;libavoidRouting&quot;:0,&quot;curved&quot;:0,&quot;rounded&quot;:0};" value="Flask Backend" vertex="1">
+          <mxGeometry height="300" width="100" x="490" y="90" as="geometry" />
+        </mxCell>
+        <mxCell id="_uRkcn7vLzeU5v2Ib7nh-7" parent="1" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;html=1;container=1;dropTarget=0;collapsible=0;recursiveResize=0;outlineConnect=0;portConstraint=eastwest;newEdgeStyle={&quot;edgeStyle&quot;:&quot;sequenceEdgeStyle&quot;,&quot;libavoidRouting&quot;:0,&quot;curved&quot;:0,&quot;rounded&quot;:0};" value="MySQL database" vertex="1">
+          <mxGeometry height="300" width="100" x="690" y="90" as="geometry" />
+        </mxCell>
+        <mxCell id="_uRkcn7vLzeU5v2Ib7nh-8" edge="1" parent="1" style="html=1;verticalAlign=bottom;startArrow=oval;startFill=1;endArrow=block;startSize=8;edgeStyle=sequenceEdgeStyle;libavoidRouting=0;curved=0;rounded=0;" target="_uRkcn7vLzeU5v2Ib7nh-5" value="Select Subject / Upload Resource">
+          <mxGeometry relative="1" width="60" x="-0.1649" as="geometry">
+            <mxPoint as="offset" />
+            <Array as="points">
+              <mxPoint x="209.75" y="140" />
+            </Array>
+            <mxPoint x="90" y="140" as="sourcePoint" />
+            <mxPoint x="210" y="150" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="_uRkcn7vLzeU5v2Ib7nh-10" edge="1" parent="1" style="html=1;verticalAlign=bottom;startArrow=oval;startFill=1;endArrow=block;startSize=8;edgeStyle=sequenceEdgeStyle;libavoidRouting=0;curved=0;rounded=0;" target="_uRkcn7vLzeU5v2Ib7nh-6" value="Send Resource Details and File">
+          <mxGeometry relative="1" width="60" x="-0.0453" as="geometry">
+            <mxPoint as="offset" />
+            <Array as="points">
+              <mxPoint x="434.7499999999998" y="180" />
+            </Array>
+            <mxPoint x="330" y="180" as="sourcePoint" />
+            <mxPoint x="390" y="180" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="_uRkcn7vLzeU5v2Ib7nh-12" edge="1" parent="1" style="html=1;verticalAlign=bottom;startArrow=oval;startFill=1;endArrow=block;startSize=8;edgeStyle=sequenceEdgeStyle;libavoidRouting=0;curved=0;rounded=0;" target="_uRkcn7vLzeU5v2Ib7nh-7" value="Save Resource Metadata">
+          <mxGeometry relative="1" width="60" as="geometry">
+            <mxPoint as="offset" />
+            <Array as="points">
+              <mxPoint x="639.7499999999998" y="220" />
+            </Array>
+            <mxPoint x="540" y="220" as="sourcePoint" />
+            <mxPoint x="600" y="220" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="_uRkcn7vLzeU5v2Ib7nh-16" edge="1" parent="1" style="html=1;verticalAlign=bottom;endArrow=open;dashed=1;endSize=8;edgeStyle=sequenceEdgeStyle;libavoidRouting=0;curved=0;rounded=0;" target="_uRkcn7vLzeU5v2Ib7nh-6" value="Return Resource ID / Status">
+          <mxGeometry relative="1" x="-0.1022" as="geometry">
+            <mxPoint as="offset" />
+            <Array as="points" />
+            <mxPoint x="740" y="330" as="sourcePoint" />
+            <mxPoint x="660" y="330" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="_uRkcn7vLzeU5v2Ib7nh-19" edge="1" parent="1" source="_uRkcn7vLzeU5v2Ib7nh-6" style="html=1;verticalAlign=bottom;endArrow=open;dashed=1;endSize=8;edgeStyle=sequenceEdgeStyle;libavoidRouting=0;curved=0;rounded=0;" target="_uRkcn7vLzeU5v2Ib7nh-5" value="Upload Result">
+          <mxGeometry relative="1" x="-0.0563" as="geometry">
+            <mxPoint as="offset" />
+            <Array as="points">
+              <mxPoint x="434.5" y="350" />
+            </Array>
+            <mxPoint x="540" y="340" as="sourcePoint" />
+            <mxPoint x="460" y="340" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="_uRkcn7vLzeU5v2Ib7nh-20" edge="1" parent="1" style="html=1;verticalAlign=bottom;endArrow=open;dashed=1;endSize=8;edgeStyle=sequenceEdgeStyle;libavoidRouting=0;curved=0;rounded=0;" value="Display Upload Confirmation">
+          <mxGeometry relative="1" x="0.1818" as="geometry">
+            <mxPoint as="offset" />
+            <mxPoint x="330" y="380" as="sourcePoint" />
+            <mxPoint x="110" y="380" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="_uRkcn7vLzeU5v2Ib7nh-21" parent="1" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;html=1;container=1;dropTarget=0;collapsible=0;recursiveResize=0;outlineConnect=0;portConstraint=eastwest;newEdgeStyle={&quot;edgeStyle&quot;:&quot;sequenceEdgeStyle&quot;,&quot;libavoidRouting&quot;:0,&quot;curved&quot;:0,&quot;rounded&quot;:0};" value="File storage" vertex="1">
+          <mxGeometry height="300" width="100" x="890" y="90" as="geometry" />
+        </mxCell>
+        <mxCell id="_uRkcn7vLzeU5v2Ib7nh-22" edge="1" parent="1" source="_uRkcn7vLzeU5v2Ib7nh-6" style="html=1;verticalAlign=bottom;startArrow=oval;startFill=1;endArrow=block;startSize=8;edgeStyle=sequenceEdgeStyle;libavoidRouting=0;curved=0;rounded=0;" target="_uRkcn7vLzeU5v2Ib7nh-21" value="Save uploaded file">
+          <mxGeometry relative="1" width="60" x="0.4476" as="geometry">
+            <mxPoint as="offset" />
+            <Array as="points">
+              <mxPoint x="739.7499999999998" y="260" />
+            </Array>
+            <mxPoint x="540" y="280" as="sourcePoint" />
+            <mxPoint x="600" y="280" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="_uRkcn7vLzeU5v2Ib7nh-24" edge="1" parent="1" style="html=1;verticalAlign=bottom;endArrow=open;dashed=1;endSize=8;edgeStyle=sequenceEdgeStyle;libavoidRouting=0;curved=0;rounded=0;" target="_uRkcn7vLzeU5v2Ib7nh-6" value="Return File Path / Status">
+          <mxGeometry relative="1" x="-0.5506" as="geometry">
+            <mxPoint as="offset" />
+            <Array as="points" />
+            <mxPoint x="940" y="300" as="sourcePoint" />
+            <mxPoint x="860" y="300" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
