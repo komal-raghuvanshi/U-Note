@@ -18,3 +18,5 @@ Thumbs.db
 # Uploaded files - do not push user uploads to GitHub
 /backend/uploads/*
 !/backend/uploads/.gitkeep
+
+backend/db.py

@@ -24,10 +24,10 @@ def allowed_file(filename):
 resources_data = [
     {
         "id": 1,
-        "title": "Python Notes",
+        "title": "Artificial Intelligence Notes",
         "branch": "AIML",
-        "semester": 3,
-        "subject": "Python",
+        "semester": 4,
+        "subject": "Artificial Intelligence",
         "unit": 1,
         "type": "PDF Notes"
     },
@@ -35,27 +35,18 @@ resources_data = [
         "id": 2,
         "title": "Machine Learning Notes",
         "branch": "AIML",
-        "semester": 3,
+        "semester": 4,
         "subject": "Machine Learning",
-        "unit": 2,
+        "unit": 1,
         "type": "Handwritten Notes"
     },
     {
         "id": 3,
-        "title": "DBMS Notes",
-        "branch": "CSE",
-        "semester": 3,
-        "subject": "DBMS",
-        "unit": 1,
-        "type": "PDF Notes"
-    },
-    {
-        "id": 4,
-        "title": "Python Unit 2 Notes",
+        "title": "Software Engineering Notes",
         "branch": "AIML",
         "semester": 4,
-        "subject": "Python",
-        "unit": 2,
+        "subject": "Software Engineering",
+        "unit": 1,
         "type": "Class Notes"
     }
 ]
