@@ -1,8 +1,9 @@
 
 import os
 from uuid import uuid4
-from flask import Blueprint, request, jsonify, current_app
+from flask import Blueprint, request, jsonify, current_app, send_from_directory
 from werkzeug.utils import secure_filename
+from flask import send_from_directory
 
 resources_bp = Blueprint("resources", __name__)
 ALLOWED_EXTENSIONS = {"pdf", "png", "jpg", "jpeg"}
@@ -172,8 +173,29 @@ def upload_resource():
             "message": "Unable to save uploaded file"
         }), 500
 
+   
+    # Add uploaded resource to the resources list
+    resource = {
+        "id": max([item["id"] for item in resources_data], default=0) + 1,
+        "title": os.path.splitext(original_name)[0].replace("_", " "),
+        "branch": request.form.get("branch", "AIML"),
+        "semester": int(request.form.get("semester", 4)),
+        "subject": request.form.get("subject", "Machine Learning"),
+        "unit": int(request.form.get("unit", 1)),
+        "type": request.form.get("type", "PDF Notes"),
+        "filename": saved_filename
+    }
+
+    resources_data.append(resource)
+
     return jsonify({
         "success": True,
         "message": "Resource uploaded successfully",
-        "filename": saved_filename
+        "filename": saved_filename,
+        "resource": resource
     }), 201
+
+
+@resources_bp.route("/uploads/<filename>")
+def open_uploaded_file(filename):
+    return send_from_directory(UPLOAD_FOLDER, filename)

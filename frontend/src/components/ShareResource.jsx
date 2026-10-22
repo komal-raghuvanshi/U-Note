@@ -1,7 +1,12 @@
+
 import { useState } from 'react'
 
 function ShareResource({ onBack }) {
   const [submitted, setSubmitted] = useState(false)
+  const [file, setFile] = useState(null)
+  const [error, setError] = useState('')
+  const [uploading, setUploading] = useState(false)
+
   const [formData, setFormData] = useState({
     title: '',
     branch: '',
@@ -16,9 +21,41 @@ function ShareResource({ onBack }) {
     setFormData((prev) => ({ ...prev, [name]: value }))
   }
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault()
-    setSubmitted(true)
+    setError('')
+
+    if (!file) {
+      setError('Please select a file.')
+      return
+    }
+
+    const data = new FormData()
+    data.append('file', file)
+
+    try {
+      setUploading(true)
+
+      const response = await fetch(
+        'http://127.0.0.1:5000/resources/upload',
+        {
+          method: 'POST',
+          body: data
+        }
+      )
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result.message || 'Upload failed.')
+      }
+
+      setSubmitted(true)
+    } catch (err) {
+      setError(err.message || 'Unable to upload file.')
+    } finally {
+      setUploading(false)
+    }
   }
 
   return (
@@ -33,28 +70,30 @@ function ShareResource({ onBack }) {
             >
               &larr; Back to Home
             </button>
-            <h1 className="share-form-title">Share a Study Resource</h1>
+
+            <h1 className="share-form-title">
+              Share a Study Resource
+            </h1>
+
             <p className="share-form-subtitle">
               Contribute verified study material to help your fellow RGPV students.
             </p>
           </div>
 
-          <div className="prototype-badge-box">
-            <span className="prototype-badge-pill">UI Prototype</span>
-            <p className="prototype-badge-text">
-              File upload backend integration is currently in progress. Submissions on this form are preview-only.
-            </p>
-          </div>
-
           {submitted ? (
             <div className="submission-success-card">
-              <h3>Resource Preview Submitted!</h3>
+              <h3>File Uploaded Successfully!</h3>
+
               <p>
-                <strong>{formData.title}</strong> ({formData.type}) for {formData.branch} Semester {formData.semester}.
+                <strong>{formData.title}</strong> ({formData.type}) for{' '}
+                {formData.branch} Semester {formData.semester}.
               </p>
+
               <p className="success-note">
-                Once backend upload integration is finalized, your upload will be saved to the database.
+                Your file has been uploaded to the backend.
+                Resource details are not yet saved to the database.
               </p>
+
               <div className="success-actions">
                 <button
                   type="button"
@@ -63,17 +102,33 @@ function ShareResource({ onBack }) {
                 >
                   Return to Home
                 </button>
+
                 <button
                   type="button"
                   className="btn btn-secondary"
-                  onClick={() => setSubmitted(false)}
+                  onClick={() => {
+                    setSubmitted(false)
+                    setFile(null)
+                    setError('')
+                    setFormData({
+                      title: '',
+                      branch: '',
+                      semester: '',
+                      subject: '',
+                      unit: '',
+                      type: ''
+                    })
+                  }}
                 >
                   Share Another
                 </button>
               </div>
             </div>
           ) : (
-            <form className="share-resource-form" onSubmit={handleSubmit}>
+            <form
+              className="share-resource-form"
+              onSubmit={handleSubmit}
+            >
               <div className="form-group">
                 <label htmlFor="title">Resource Title</label>
                 <input
@@ -186,25 +241,38 @@ function ShareResource({ onBack }) {
               </div>
 
               <div className="form-group">
-                <label htmlFor="file">Select File (PDF, DOC, Images)</label>
+                <label htmlFor="file">Select File (PDF, PNG, JPG, JPEG)</label>
                 <input
                   type="file"
                   id="file"
                   name="file"
                   className="form-control file-input"
-                  accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                  accept=".pdf,.png,.jpg,.jpeg"
+                  onChange={(e) => setFile(e.target.files[0] || null)}
                   required
                 />
               </div>
 
+              {error && (
+                <p className="error-message" role="alert">
+                  {error}
+                </p>
+              )}
+
               <div className="form-button-row">
-                <button type="submit" className="btn btn-primary">
-                  Submit Resource
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  disabled={uploading}
+                >
+                  {uploading ? 'Uploading...' : 'Submit Resource'}
                 </button>
+
                 <button
                   type="button"
                   className="btn btn-secondary"
                   onClick={onBack}
+                  disabled={uploading}
                 >
                   Cancel
                 </button>
