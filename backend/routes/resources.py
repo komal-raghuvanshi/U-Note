@@ -26,41 +26,11 @@ def allowed_file(filename):
     )
 
 
-resources_data = [
-    {
-        "id": 1,
-        "title": "Artificial Intelligence Notes",
-        "branch": "AIML",
-        "semester": 4,
-        "subject": "Artificial Intelligence",
-        "unit": 1,
-        "type": "PDF Notes"
-    },
-    {
-        "id": 2,
-        "title": "Machine Learning Notes",
-        "branch": "AIML",
-        "semester": 4,
-        "subject": "Machine Learning",
-        "unit": 1,
-        "type": "Handwritten Notes"
-    },
-    {
-        "id": 3,
-        "title": "Software Engineering Notes",
-        "branch": "AIML",
-        "semester": 4,
-        "subject": "Software Engineering",
-        "unit": 1,
-        "type": "Class Notes"
-    }
-]
-
-
 def _fetch_all_resources():
     """
-    Fetch resources from the MySQL database with complete foreign key joins.
-    Falls back to and merges with demo data so existing views and cards remain intact.
+    Fetch study resources from the MySQL database with complete foreign key joins.
+    Only returns resources that have valid database records AND whose physical file
+    exists in the uploads folder. Raises database exceptions so callers can return clear errors.
     """
     db_resources = []
     connection = None
@@ -89,6 +59,22 @@ def _fetch_all_resources():
         rows = cursor.fetchall()
 
         for row in rows:
+            url = (row.get("resource_url") or "").strip()
+            filename = None
+
+            if url.startswith("/uploads/"):
+                filename = url.replace("/uploads/", "").strip()
+            elif os.path.exists(os.path.join(UPLOAD_FOLDER, url)):
+                filename = url
+
+            # Verify that the referenced file physically exists in the uploads directory
+            if not filename:
+                continue
+
+            file_path = os.path.join(UPLOAD_FOLDER, filename)
+            if not (os.path.isfile(file_path) and os.path.getsize(file_path) > 0):
+                continue
+
             sem_val = None
             if row["semester"]:
                 try:
@@ -96,17 +82,10 @@ def _fetch_all_resources():
                 except (ValueError, TypeError):
                     sem_val = row["semester"]
 
-            filename = None
-            url = row["resource_url"] or ""
-            if url.startswith("/uploads/"):
-                filename = url.replace("/uploads/", "")
-            elif os.path.exists(os.path.join(UPLOAD_FOLDER, url)):
-                filename = url
-
             db_resources.append({
                 "id": row["id"],
                 "title": row["title"],
-                "branch": row["branch"] or "AIML",
+                "branch": row["branch"] or "",
                 "semester": sem_val if sem_val is not None else 4,
                 "subject": row["subject"] or "",
                 "unit": row["unit"] if row["unit"] is not None else None,
@@ -115,11 +94,9 @@ def _fetch_all_resources():
                 "resource_url": url,
                 "description": row["description"] or ""
             })
-    except Exception as e:
-        try:
-            current_app.logger.warning(f"Could not fetch from database, falling back to demo: {e}")
-        except Exception:
-            pass
+
+        return db_resources
+
     finally:
         if cursor:
             try:
@@ -132,20 +109,6 @@ def _fetch_all_resources():
             except Exception:
                 pass
 
-    if db_resources:
-        existing_ids = {r["id"] for r in db_resources}
-        existing_titles = {r["title"].strip().lower() for r in db_resources}
-        combined = list(db_resources)
-        for demo in resources_data:
-            if demo["title"].strip().lower() not in existing_titles:
-                demo_copy = dict(demo)
-                if demo_copy["id"] in existing_ids:
-                    demo_copy["id"] = 10000 + demo_copy["id"]
-                combined.append(demo_copy)
-        return combined
-    else:
-        return list(resources_data)
-
 
 @resources_bp.route("/resources")
 def get_resources():
@@ -156,7 +119,20 @@ def get_resources():
     search = request.args.get("search")
     resource_type = request.args.get("type")
 
-    all_resources = _fetch_all_resources()
+    try:
+        all_resources = _fetch_all_resources()
+    except Exception as e:
+        try:
+            current_app.logger.exception("Failed to fetch resources from database")
+        except Exception:
+            pass
+        return jsonify({
+            "success": False,
+            "message": f"Database error occurred: {str(e)}",
+            "count": 0,
+            "resources": []
+        }), 500
+
     filtered_resources = []
 
     for resource in all_resources:
@@ -182,31 +158,54 @@ def get_resources():
 
     filtered_resources.sort(key=lambda item: item["title"].lower())
 
-    return {
+    return jsonify({
         "message": "Resources fetched successfully",
         "count": len(filtered_resources),
         "resources": filtered_resources
-    }
+    }), 200
 
 
 @resources_bp.route("/resources/<int:resource_id>")
 def get_resource_by_id(resource_id):
-    all_resources = _fetch_all_resources()
+    try:
+        all_resources = _fetch_all_resources()
+    except Exception as e:
+        try:
+            current_app.logger.exception("Failed to fetch resource from database")
+        except Exception:
+            pass
+        return jsonify({
+            "success": False,
+            "message": f"Database error occurred: {str(e)}"
+        }), 500
+
     for resource in all_resources:
         if resource["id"] == resource_id:
-            return {
+            return jsonify({
                 "message": "Resource fetched successfully",
                 "resource": resource
-            }
+            }), 200
 
-    return {
+    return jsonify({
         "message": "Resource not found"
-    }, 404
+    }), 404
 
 
 @resources_bp.route("/resource-types")
 def get_resource_types():
-    all_resources = _fetch_all_resources()
+    try:
+        all_resources = _fetch_all_resources()
+    except Exception as e:
+        try:
+            current_app.logger.exception("Failed to fetch resource types")
+        except Exception:
+            pass
+        return jsonify({
+            "success": False,
+            "message": f"Database error occurred: {str(e)}",
+            "resource_types": []
+        }), 500
+
     resource_types = []
 
     for resource in all_resources:
@@ -214,10 +213,10 @@ def get_resource_types():
         if rtype and rtype not in resource_types:
             resource_types.append(rtype)
 
-    return {
+    return jsonify({
         "message": "Resource types fetched successfully",
         "resource_types": resource_types
-    }
+    }), 200
 
 
 @resources_bp.route("/resources/upload", methods=["POST"])

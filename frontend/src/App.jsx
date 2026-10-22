@@ -22,6 +22,7 @@ function App() {
   })
 
   const [previewResources, setPreviewResources] = useState([])
+  const [loadingPreview, setLoadingPreview] = useState(true)
   const [selectedResource, setSelectedResource] = useState(null)
   const [showProfileModal, setShowProfileModal] = useState(false)
   const [user, setUser] = useState(() => {
@@ -48,8 +49,14 @@ function App() {
   useEffect(() => {
     fetch('http://127.0.0.1:5000/resources')
       .then((res) => res.json())
-      .then((data) => setPreviewResources(data.resources || []))
-      .catch((err) => console.error('Error fetching preview resources:', err))
+      .then((data) => {
+        setPreviewResources(data.resources || [])
+        setLoadingPreview(false)
+      })
+      .catch((err) => {
+        console.error('Error fetching preview resources:', err)
+        setLoadingPreview(false)
+      })
   }, [])
 
   const navigate = (pathWithQuery, targetSectionId = null) => {
@@ -283,7 +290,9 @@ function App() {
                     ))
                   ) : (
                     <p className="no-resources-msg">
-                      Loading resources from backend...
+                      {loadingPreview
+                        ? 'Loading resources from backend...'
+                        : 'No study resources have been uploaded yet. Be the first to share!'}
                     </p>
                   )}
                 </div>

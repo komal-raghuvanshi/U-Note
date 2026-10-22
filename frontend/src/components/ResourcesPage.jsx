@@ -13,6 +13,48 @@ function ResourcesPage({ onSelectResource, onShareClick, initialType = '' }) {
   const [unit, setUnit] = useState('')
   const [type, setType] = useState(initialType)
 
+  // Dynamic subject list fetched from the backend /subjects endpoint.
+  // subjectKey changes whenever branch or semester changes, triggering a refetch.
+  const [subjectOptions, setSubjectOptions] = useState([])
+  const [subjectsLoading, setSubjectsLoading] = useState(false)
+  const [subjectsError, setSubjectsError] = useState(false)
+
+  // Fetch subject options whenever branch or semester changes.
+  // The /subjects API accepts ?branch=AIML&semester=4 and returns a plain
+  // JSON array of { id, name, branch, semester } objects.
+  useEffect(() => {
+    let ignore = false
+
+    const params = new URLSearchParams()
+    if (branch) params.append('branch', branch)
+    if (semester) params.append('semester', semester)
+
+
+
+    fetch(`http://127.0.0.1:5000/subjects?${params.toString()}`)
+      .then((res) => {
+        if (!res.ok) throw new Error('subjects fetch failed')
+        return res.json()
+      })
+      .then((data) => {
+        if (!ignore) {
+          setSubjectOptions(Array.isArray(data) ? data : [])
+          setSubjectsLoading(false)
+        }
+      })
+      .catch(() => {
+        if (!ignore) {
+          setSubjectOptions([])
+          setSubjectsLoading(false)
+          setSubjectsError(true)
+        }
+      })
+
+    return () => {
+      ignore = true
+    }
+  }, [branch, semester])
+
   const loadResources = useCallback((queryOverride = {}) => {
     setLoading(true)
     const activeSearch = queryOverride.search !== undefined ? queryOverride.search : search
@@ -74,12 +116,18 @@ function ResourcesPage({ onSelectResource, onShareClick, initialType = '' }) {
 
   const handleBranchChange = (newBranch) => {
     setBranch(newBranch)
-    loadResources({ branch: newBranch })
+    setSubject('')
+    setSubjectsLoading(true)
+    setSubjectsError(false)
+    loadResources({ branch: newBranch, subject: '' })
   }
 
   const handleSemesterChange = (newSemester) => {
     setSemester(newSemester)
-    loadResources({ semester: newSemester })
+    setSubject('')
+    setSubjectsLoading(true)
+    setSubjectsError(false)
+    loadResources({ semester: newSemester, subject: '' })
   }
 
   const handleSubjectChange = (newSubject) => {
@@ -120,6 +168,15 @@ function ResourcesPage({ onSelectResource, onShareClick, initialType = '' }) {
   }
 
   const visibleResources = resources.slice(0, visibleCount)
+
+  // Derive the placeholder text for the subject dropdown
+  const subjectPlaceholder = subjectsLoading
+    ? 'Loading subjects...'
+    : subjectsError
+      ? 'Could not load subjects'
+      : subjectOptions.length === 0
+        ? 'No subjects available'
+        : 'All Subjects'
 
   return (
     <div className="resources-page-container">
@@ -194,7 +251,7 @@ function ResourcesPage({ onSelectResource, onShareClick, initialType = '' }) {
               </select>
             </div>
 
-            
+            {/* Subject dropdown — populated dynamically from GET /subjects */}
             <div className="filter-item">
               <label htmlFor="filter-subject">Subject</label>
               <select
@@ -202,20 +259,16 @@ function ResourcesPage({ onSelectResource, onShareClick, initialType = '' }) {
                 className="form-control"
                 value={subject}
                 onChange={(e) => handleSubjectChange(e.target.value)}
+                disabled={subjectsLoading}
               >
-                <option value="">All Subjects</option>
-                <option value="Artificial Intelligence">
-                  Artificial Intelligence
-                </option>
-                <option value="Machine Learning">
-                  Machine Learning
-                </option>
-                <option value="Software Engineering">
-                  Software Engineering
-                </option>
+                <option value="">{subjectPlaceholder}</option>
+                {subjectOptions.map((s) => (
+                  <option key={s.id} value={s.name}>
+                    {s.name}
+                  </option>
+                ))}
               </select>
             </div>
-
 
             <div className="filter-item">
               <label htmlFor="filter-unit">Unit</label>
