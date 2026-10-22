@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 
 function Navbar({ onNavigate, currentPath = '/', user, onOpenProfile, onLogout }) {
   const [dropdownOpen, setDropdownOpen] = useState(false)
+  const [mobileOpen, setMobileOpen] = useState(false)
   const dropdownRef = useRef(null)
 
   // Close dropdown on outside click
@@ -18,6 +19,7 @@ function Navbar({ onNavigate, currentPath = '/', user, onOpenProfile, onLogout }
   const handleLinkClick = (e, path, sectionId = null) => {
     e.preventDefault()
     setDropdownOpen(false)
+    setMobileOpen(false)
     if (onNavigate) {
       onNavigate(path, sectionId)
     }
@@ -34,7 +36,17 @@ function Navbar({ onNavigate, currentPath = '/', user, onOpenProfile, onLogout }
           U-NOTE
         </a>
 
-        <nav className="nav-links">
+        <button
+          type="button"
+          className="nav-hamburger"
+          onClick={() => setMobileOpen((prev) => !prev)}
+          aria-label="Toggle navigation menu"
+          aria-expanded={mobileOpen}
+        >
+          ☰
+        </button>
+
+        <nav className={`nav-links${mobileOpen ? ' nav-links-open' : ''}`}>
           <a
             href="/"
             className={`nav-link ${currentPath === '/' ? 'active' : ''}`}
@@ -43,9 +55,9 @@ function Navbar({ onNavigate, currentPath = '/', user, onOpenProfile, onLogout }
             Home
           </a>
           <a
-            href="#about"
-            className="nav-link"
-            onClick={(e) => handleLinkClick(e, '/', 'about')}
+            href="/about"
+            className={`nav-link ${currentPath === '/about' ? 'active' : ''}`}
+            onClick={(e) => handleLinkClick(e, '/about')}
           >
             About
           </a>

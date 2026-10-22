@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useLayoutEffect } from 'react'
 import Navbar from './components/Navbar'
 import Footer from './components/Footer'
 import ShareResource from './components/ShareResource'
@@ -8,10 +8,14 @@ import HelpPage from './components/HelpPage'
 import ContactPage from './components/ContactPage'
 import AuthPages from './components/AuthPages'
 import ProfileModal from './components/ProfileModal'
+import AboutPage from './components/AboutPage'
 import './App.css'
 
 function App() {
   const [currentPath, setCurrentPath] = useState(window.location.pathname)
+  const [pendingSection, setPendingSection] = useState(() => ({
+    id: window.location.hash.slice(1),
+  }))
   const [initialCategoryType, setInitialCategoryType] = useState(() => {
     try {
       const searchParams = new URLSearchParams(window.location.search)
@@ -40,10 +44,22 @@ function App() {
       setCurrentPath(window.location.pathname)
       const searchParams = new URLSearchParams(window.location.search)
       setInitialCategoryType(searchParams.get('type') || '')
+      setPendingSection({ id: window.location.hash.slice(1) })
     }
     window.addEventListener('popstate', handleLocationChange)
     return () => window.removeEventListener('popstate', handleLocationChange)
   }, [])
+
+  useLayoutEffect(() => {
+    if (!pendingSection.id) return
+
+    const element = document.getElementById(pendingSection.id)
+    if (element) {
+      const navbarHeight = document.querySelector('.navbar')?.getBoundingClientRect().height || 0
+      const targetTop = window.scrollY + element.getBoundingClientRect().top - navbarHeight - 16
+      window.scrollTo({ top: targetTop, behavior: 'smooth' })
+    }
+  }, [currentPath, pendingSection])
 
   // Fetch initial sample resources for Homepage preview
   useEffect(() => {
@@ -60,20 +76,15 @@ function App() {
   }, [])
 
   const navigate = (pathWithQuery, targetSectionId = null) => {
-    window.history.pushState({}, '', pathWithQuery)
-    const [pathOnly, queryString] = pathWithQuery.split('?')
-    setCurrentPath(pathOnly)
-    const searchParams = new URLSearchParams(queryString ? `?${queryString}` : '')
+    const destination = new URL(pathWithQuery, window.location.origin)
+    window.history.pushState({}, '', destination.pathname + destination.search + destination.hash)
+    setCurrentPath(destination.pathname)
+    const searchParams = new URLSearchParams(destination.search)
     setInitialCategoryType(searchParams.get('type') || '')
 
-    if (targetSectionId) {
-      setTimeout(() => {
-        const element = document.getElementById(targetSectionId)
-        if (element) {
-          element.scrollIntoView({ behavior: 'smooth' })
-        }
-      }, 50)
-    } else {
+    const sectionId = targetSectionId || destination.hash.slice(1)
+    setPendingSection({ id: sectionId || '' })
+    if (!sectionId) {
       window.scrollTo({ top: 0, behavior: 'smooth' })
     }
   }
@@ -149,6 +160,9 @@ function App() {
       case '/contact':
         return <ContactPage />
 
+      case '/about':
+        return <AboutPage onNavigate={navigate} />
+
       case '/login':
         return (
           <AuthPages
@@ -198,53 +212,7 @@ function App() {
               </div>
             </section>
 
-            {/* 2. How Resources Are Organized */}
-            <section className="organization-section" id="about">
-              <div className="section-container">
-                <div className="section-header">
-                  <h2 className="section-title">How Resources Are Organized</h2>
-                  <p className="section-description">
-                    Say goodbye to scattered links across multiple apps. In U-NOTE, resources are
-                    structured systematically following the official RGPV academic hierarchy so you
-                    can locate the exact material you need.
-                  </p>
-                </div>
-
-                <div className="hierarchy-container">
-                  <div className="hierarchy-card">
-                    <span className="hierarchy-step">Step 1</span>
-                    <h3 className="hierarchy-title">Branch</h3>
-                    <p className="hierarchy-text">Choose your engineering discipline (e.g., AIML, CSE, IT, EC, ME, Civil).</p>
-                  </div>
-
-                  <div className="hierarchy-arrow" aria-hidden="true">&rarr;</div>
-
-                  <div className="hierarchy-card">
-                    <span className="hierarchy-step">Step 2</span>
-                    <h3 className="hierarchy-title">Semester</h3>
-                    <p className="hierarchy-text">Select your current semester from 1st through 8th.</p>
-                  </div>
-
-                  <div className="hierarchy-arrow" aria-hidden="true">&rarr;</div>
-
-                  <div className="hierarchy-card">
-                    <span className="hierarchy-step">Step 3</span>
-                    <h3 className="hierarchy-title">Subject</h3>
-                    <p className="hierarchy-text">Pick your course subject according to the RGPV curriculum.</p>
-                  </div>
-
-                  <div className="hierarchy-arrow" aria-hidden="true">&rarr;</div>
-
-                  <div className="hierarchy-card">
-                    <span className="hierarchy-step">Step 4</span>
-                    <h3 className="hierarchy-title">Unit</h3>
-                    <p className="hierarchy-text">Access focused unit-wise study material (Units 1 to 5).</p>
-                  </div>
-                </div>
-              </div>
-            </section>
-
-            {/* 3. Limited Preview of Available Resources */}
+            {/* 2. Limited Preview of Available Resources */}
             <section className="resources-section" id="resources-preview">
               <div className="section-container">
                 <div className="section-header">
@@ -312,7 +280,7 @@ function App() {
               </div>
             </section>
 
-            {/* 4. Supported Resource Types Reference - Clickable Categories */}
+            {/* 3. Supported Resource Types Reference - Clickable Categories */}
             <section className="resources-section" id="resource-types" style={{ backgroundColor: '#ffffff', borderTop: '1px solid var(--border-color)' }}>
               <div className="section-container">
                 <div className="section-header">
@@ -380,7 +348,7 @@ function App() {
         />
       )}
 
-      <Footer />
+      <Footer onNavigate={navigate} />
     </div>
   )
 }

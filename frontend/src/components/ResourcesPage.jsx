@@ -14,7 +14,6 @@ function ResourcesPage({ onSelectResource, onShareClick, initialType = '' }) {
   const [type, setType] = useState(initialType)
 
   // Dynamic subject list fetched from the backend /subjects endpoint.
-  // subjectKey changes whenever branch or semester changes, triggering a refetch.
   const [subjectOptions, setSubjectOptions] = useState([])
   const [subjectsLoading, setSubjectsLoading] = useState(false)
   const [subjectsError, setSubjectsError] = useState(false)
@@ -25,34 +24,34 @@ function ResourcesPage({ onSelectResource, onShareClick, initialType = '' }) {
   useEffect(() => {
     let ignore = false
 
-    const params = new URLSearchParams()
-    if (branch) params.append('branch', branch)
-    if (semester) params.append('semester', semester)
+    async function fetchSubjects() {
+      setSubjectsLoading(true)
+      setSubjectOptions([])
+      setSubjectsError(false)
 
+      const params = new URLSearchParams()
+      if (branch) params.append('branch', branch)
+      if (semester) params.append('semester', semester)
 
-
-    fetch(`http://127.0.0.1:5000/subjects?${params.toString()}`)
-      .then((res) => {
-        if (!res.ok) throw new Error('subjects fetch failed')
-        return res.json()
-      })
-      .then((data) => {
+      try {
+        const res = await fetch(`http://127.0.0.1:5000/subjects?${params.toString()}`)
+        if (!res.ok) throw new Error('failed')
+        const data = await res.json()
         if (!ignore) {
           setSubjectOptions(Array.isArray(data) ? data : [])
           setSubjectsLoading(false)
         }
-      })
-      .catch(() => {
+      } catch {
         if (!ignore) {
           setSubjectOptions([])
           setSubjectsLoading(false)
           setSubjectsError(true)
         }
-      })
-
-    return () => {
-      ignore = true
+      }
     }
+
+    fetchSubjects()
+    return () => { ignore = true }
   }, [branch, semester])
 
   const loadResources = useCallback((queryOverride = {}) => {
@@ -117,16 +116,12 @@ function ResourcesPage({ onSelectResource, onShareClick, initialType = '' }) {
   const handleBranchChange = (newBranch) => {
     setBranch(newBranch)
     setSubject('')
-    setSubjectsLoading(true)
-    setSubjectsError(false)
     loadResources({ branch: newBranch, subject: '' })
   }
 
   const handleSemesterChange = (newSemester) => {
     setSemester(newSemester)
     setSubject('')
-    setSubjectsLoading(true)
-    setSubjectsError(false)
     loadResources({ semester: newSemester, subject: '' })
   }
 

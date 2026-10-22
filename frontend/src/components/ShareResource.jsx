@@ -1,5 +1,4 @@
-
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 
 function ShareResource({ onBack, user }) {
   const [submitted, setSubmitted] = useState(false)
@@ -16,9 +15,55 @@ function ShareResource({ onBack, user }) {
     type: ''
   })
 
+  const [subjectOptions, setSubjectOptions] = useState([])
+  const [subjectsLoading, setSubjectsLoading] = useState(false)
+
+  // Fetch subjects when branch or semester changes
+  useEffect(() => {
+    let ignore = false
+
+    async function fetchSubjects() {
+      setSubjectsLoading(true)
+      setSubjectOptions([])
+
+      const params = new URLSearchParams()
+      if (formData.branch) params.append('branch', formData.branch)
+      if (formData.semester) params.append('semester', formData.semester)
+
+      try {
+        const res = await fetch(`http://127.0.0.1:5000/subjects?${params.toString()}`)
+        if (!res.ok) throw new Error('failed')
+        const data = await res.json()
+        if (!ignore) {
+          setSubjectOptions(Array.isArray(data) ? data : [])
+          setSubjectsLoading(false)
+        }
+      } catch {
+        if (!ignore) {
+          setSubjectOptions([])
+          setSubjectsLoading(false)
+        }
+      }
+    }
+
+    if (formData.branch && formData.semester) {
+      fetchSubjects()
+    } else {
+      setSubjectOptions([])
+      setSubjectsLoading(false)
+    }
+
+    return () => { ignore = true }
+  }, [formData.branch, formData.semester])
+
   const handleChange = (e) => {
     const { name, value } = e.target
-    setFormData((prev) => ({ ...prev, [name]: value }))
+    setFormData((prev) => ({
+      ...prev,
+      [name]: value,
+      // Reset subject when branch or semester changes
+      ...(name === 'branch' || name === 'semester' ? { subject: '' } : {})
+    }))
   }
 
   const handleSubmit = async (event) => {
@@ -196,16 +241,26 @@ function ShareResource({ onBack, user }) {
               <div className="form-row">
                 <div className="form-group">
                   <label htmlFor="subject">Subject Name</label>
-                  <input
-                    type="text"
+                  <select
                     id="subject"
                     name="subject"
                     className="form-control"
-                    placeholder="e.g. Machine Learning"
                     value={formData.subject}
                     onChange={handleChange}
                     required
-                  />
+                    disabled={subjectsLoading || subjectOptions.length === 0}
+                  >
+                    <option value="">
+                      {subjectsLoading
+                        ? 'Loading subjects...'
+                        : subjectOptions.length === 0
+                          ? (formData.branch && formData.semester ? 'No subjects found' : 'Select branch & semester first')
+                          : 'Select subject'}
+                    </option>
+                    {subjectOptions.map((s) => (
+                      <option key={s.id} value={s.name}>{s.name}</option>
+                    ))}
+                  </select>
                 </div>
 
                 <div className="form-group">
