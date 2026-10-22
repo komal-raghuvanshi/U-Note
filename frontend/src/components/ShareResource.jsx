@@ -1,7 +1,7 @@
 
 import { useState } from 'react'
 
-function ShareResource({ onBack }) {
+function ShareResource({ onBack, user }) {
   const [submitted, setSubmitted] = useState(false)
   const [file, setFile] = useState(null)
   const [error, setError] = useState('')
@@ -32,6 +32,15 @@ function ShareResource({ onBack }) {
 
     const data = new FormData()
     data.append('file', file)
+    data.append('title', formData.title)
+    data.append('branch', formData.branch)
+    data.append('semester', formData.semester)
+    data.append('subject', formData.subject)
+    data.append('unit', formData.unit)
+    data.append('type', formData.type)
+    if (user && user.id) {
+      data.append('uploaded_by', user.id)
+    }
 
     try {
       setUploading(true)
@@ -90,8 +99,8 @@ function ShareResource({ onBack }) {
               </p>
 
               <p className="success-note">
-                Your file has been uploaded to the backend.
-                Resource details are not yet saved to the database.
+                Your file and resource details have been successfully uploaded and saved to the database.
+                You can now view this resource on the Resources page.
               </p>
 
               <div className="success-actions">

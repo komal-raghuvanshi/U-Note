@@ -53,7 +53,7 @@ function AuthPages({ mode = 'login', onNavigate, onLoginSuccess }) {
       })
 
       onNavigate('/')
-    } catch (error) {
+    } catch {
       alert('Unable to connect to the server. Please try again.')
     }
   }

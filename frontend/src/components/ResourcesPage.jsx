@@ -314,6 +314,20 @@ function ResourcesPage({ onSelectResource, onShareClick, initialType = '' }) {
                     {resource.subject} · Unit {resource.unit}
                   </p>
                   <p className="resource-description">{resource.type}</p>
+                  {resource.filename && (
+                    <div style={{ marginTop: '0.75rem' }}>
+                      <a
+                        href={`http://127.0.0.1:5000/uploads/${resource.filename}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn btn-secondary"
+                        style={{ display: 'inline-block', fontSize: '0.85rem', padding: '0.35rem 0.75rem', textDecoration: 'none' }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        View PDF
+                      </a>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

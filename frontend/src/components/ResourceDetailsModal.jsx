@@ -48,7 +48,18 @@ function ResourceDetailsModal({ resource, onClose }) {
           </div>
         </div>
 
-        <div className="modal-footer">
+        <div className="modal-footer" style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', alignItems: 'center' }}>
+          {resource.filename && (
+            <a
+              href={`http://127.0.0.1:5000/uploads/${resource.filename}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn btn-secondary"
+              style={{ textDecoration: 'none' }}
+            >
+              View PDF
+            </a>
+          )}
           <button type="button" className="btn btn-primary" onClick={onClose}>
             Close
           </button>
