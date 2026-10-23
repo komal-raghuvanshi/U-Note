@@ -359,7 +359,7 @@ function ResourcesPage({ onSelectResource, onShareClick, initialType = '' }) {
                     {resource.branch} · Semester {resource.semester}
                   </p>
                   <p className="resource-description">
-                    {resource.subject} · Unit {resource.unit}
+                    {resource.subject} · {resource.unit_label || `Unit ${resource.unit}`}
                   </p>
                   <p className="resource-description">{resource.type}</p>
                   {resource.filename && (

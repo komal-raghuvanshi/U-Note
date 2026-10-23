@@ -29,6 +29,7 @@ function App() {
   const [loadingPreview, setLoadingPreview] = useState(true)
   const [selectedResource, setSelectedResource] = useState(null)
   const [showProfileModal, setShowProfileModal] = useState(false)
+  const [profileInitialTab, setProfileInitialTab] = useState('profile')
   const [user, setUser] = useState(() => {
     try {
       const saved = localStorage.getItem('unote_user')
@@ -237,7 +238,7 @@ function App() {
                           {resource.branch} · Semester {resource.semester}
                         </p>
                         <p className="resource-description">
-                          {resource.subject} · Unit {resource.unit}
+                          {resource.subject} · {resource.unit_label || `Unit ${resource.unit}`}
                         </p>
                         <p className="resource-description">{resource.type}</p>
                         {resource.filename && (
@@ -325,7 +326,10 @@ function App() {
         onNavigate={navigate}
         currentPath={currentPath}
         user={user}
-        onOpenProfile={() => setShowProfileModal(true)}
+        onOpenProfile={(tab) => {
+          setProfileInitialTab(tab || 'profile')
+          setShowProfileModal(true)
+        }}
         onLogout={handleLogout}
       />
 
@@ -341,6 +345,7 @@ function App() {
       {showProfileModal && (
         <ProfileModal
           user={user}
+          initialTab={profileInitialTab}
           onClose={() => setShowProfileModal(false)}
           onLogout={handleLogout}
           onNavigate={navigate}

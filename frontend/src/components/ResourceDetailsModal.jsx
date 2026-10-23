@@ -37,7 +37,9 @@ function ResourceDetailsModal({ resource, onClose }) {
 
             <div className="meta-item">
               <span className="meta-label">Unit</span>
-              <span className="meta-value">Unit {resource.unit}</span>
+              <span className="meta-value">
+                {resource.unit_label || (resource.unit ? `Unit ${resource.unit}` : 'Not specified')}
+              </span>
             </div>
           </div>
 

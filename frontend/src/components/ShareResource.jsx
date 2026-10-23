@@ -61,8 +61,11 @@ function ShareResource({ onBack, user }) {
     setFormData((prev) => ({
       ...prev,
       [name]: value,
-      // Reset subject when branch or semester changes
-      ...(name === 'branch' || name === 'semester' ? { subject: '' } : {})
+      ...(name === 'branch' || name === 'semester'
+        ? { subject: '', unit: '' }
+        : name === 'subject'
+          ? { unit: '' }
+          : {})
     }))
   }
 
@@ -74,6 +77,10 @@ function ShareResource({ onBack, user }) {
       setError('Please select a file.')
       return
     }
+    if (!user?.id) {
+      setError('Please log in before sharing a resource.')
+      return
+    }
 
     const data = new FormData()
     data.append('file', file)
@@ -83,9 +90,7 @@ function ShareResource({ onBack, user }) {
     data.append('subject', formData.subject)
     data.append('unit', formData.unit)
     data.append('type', formData.type)
-    if (user && user.id) {
-      data.append('uploaded_by', user.id)
-    }
+    data.append('uploaded_by', user.id)
 
     try {
       setUploading(true)
@@ -274,6 +279,7 @@ function ShareResource({ onBack, user }) {
                     required
                   >
                     <option value="" disabled>Select unit</option>
+                    <option value="all">All Units</option>
                     {[1, 2, 3, 4, 5].map((u) => (
                       <option key={u} value={u}>
                         Unit {u}

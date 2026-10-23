@@ -95,6 +95,7 @@ CREATE TABLE IF NOT EXISTS resources (
     uploaded_by INT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     unit_id INT NULL,
+    unit_scope ENUM('unit', 'all') NOT NULL DEFAULT 'unit',
     description TEXT NULL,
     FOREIGN KEY (subject_id)
         REFERENCES subjects(subject_id),

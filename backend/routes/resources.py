@@ -26,7 +26,7 @@ def allowed_file(filename):
     )
 
 
-def _fetch_all_resources():
+def _fetch_all_resources(owner_id=None):
     """
     Fetch study resources from the MySQL database with complete foreign key joins.
     Only returns resources that have valid database records AND whose physical file
@@ -38,7 +38,7 @@ def _fetch_all_resources():
     try:
         connection = get_db_connection()
         cursor = connection.cursor(dictionary=True)
-        cursor.execute("""
+        query = """
             SELECT
                 r.resource_id AS id,
                 r.title,
@@ -48,14 +48,21 @@ def _fetch_all_resources():
                 b.branch_name AS branch,
                 sem.semester_name AS semester,
                 s.subject_name AS subject,
-                u.unit_number AS unit
+                u.unit_number AS unit,
+                r.unit_scope AS unit_scope,
+                r.created_at AS uploaded_at
             FROM resources r
             LEFT JOIN subjects s ON r.subject_id = s.subject_id
             LEFT JOIN semesters sem ON s.semester_id = sem.semester_id
             LEFT JOIN branches b ON sem.branch_id = b.branch_id
             LEFT JOIN units u ON r.unit_id = u.unit_id
-            ORDER BY r.resource_id DESC
-        """)
+        """
+        values = ()
+        if owner_id is not None:
+            query = query.rstrip() + "\n WHERE r.uploaded_by = %s"
+            values = (owner_id,)
+        query += "\n ORDER BY r.resource_id DESC"
+        cursor.execute(query, values)
         rows = cursor.fetchall()
 
         for row in rows:
@@ -82,17 +89,33 @@ def _fetch_all_resources():
                 except (ValueError, TypeError):
                     sem_val = row["semester"]
 
+            unit_scope = row.get("unit_scope") or "unit"
+            unit_value = "all" if unit_scope == "all" else row["unit"]
+            if unit_scope == "all":
+                unit_label = "All Units"
+            elif row["unit"] is not None:
+                unit_label = f"Unit {row['unit']}"
+            else:
+                unit_label = "Not specified"
+
+            uploaded_at = row.get("uploaded_at")
+            if hasattr(uploaded_at, "isoformat"):
+                uploaded_at = uploaded_at.isoformat()
+
             db_resources.append({
                 "id": row["id"],
                 "title": row["title"],
                 "branch": row["branch"] or "",
                 "semester": sem_val if sem_val is not None else 4,
                 "subject": row["subject"] or "",
-                "unit": row["unit"] if row["unit"] is not None else None,
+                "unit": unit_value,
+                "unit_label": unit_label,
+                "unit_scope": unit_scope,
                 "type": row["type"] or "PDF Notes",
                 "filename": filename,
                 "resource_url": url,
-                "description": row["description"] or ""
+                "description": row["description"] or "",
+                "uploaded_at": uploaded_at
             })
 
         return db_resources
@@ -162,6 +185,39 @@ def get_resources():
         "message": "Resources fetched successfully",
         "count": len(filtered_resources),
         "resources": filtered_resources
+    }), 200
+
+
+@resources_bp.route("/resources/shared")
+def get_shared_resources():
+    user_id_raw = request.args.get("user_id")
+    try:
+        user_id = int(user_id_raw)
+        if user_id < 1:
+            raise ValueError
+    except (TypeError, ValueError):
+        return jsonify({
+            "success": False,
+            "message": "A valid user_id is required",
+            "resources": []
+        }), 400
+
+    try:
+        shared_resources = _fetch_all_resources(owner_id=user_id)
+    except Exception:
+        current_app.logger.exception("Failed to fetch shared resources")
+        return jsonify({
+            "success": False,
+            "message": "Unable to fetch shared resources",
+            "count": 0,
+            "resources": []
+        }), 500
+
+    return jsonify({
+        "success": True,
+        "message": "Shared resources fetched successfully",
+        "count": len(shared_resources),
+        "resources": shared_resources
     }), 200
 
 
@@ -258,7 +314,12 @@ def upload_resource():
     if not subject:
         return jsonify({"success": False, "message": "Subject is required"}), 400
     if not unit:
-        return jsonify({"success": False, "message": "Unit is required"}), 400
+        return jsonify({"success": False, "message": "Select a valid unit"}), 400
+    if not uploaded_by_raw:
+        return jsonify({
+            "success": False,
+            "message": "Log in before sharing a resource"
+        }), 401
 
     try:
         sem_num = int(str(semester).replace("Semester", "").strip())
@@ -267,12 +328,25 @@ def upload_resource():
     except (ValueError, TypeError):
         return jsonify({"success": False, "message": "Invalid semester number"}), 400
 
+    unit_scope = "all" if unit == "all" else "unit"
+    unit_num = None
+    if unit_scope == "unit":
+        try:
+            unit_num = int(str(unit).replace("Unit", "").strip())
+            if unit_num < 1 or unit_num > 5:
+                raise ValueError
+        except (ValueError, TypeError):
+            return jsonify({"success": False, "message": "Invalid unit number"}), 400
+
     try:
-        unit_num = int(str(unit).replace("Unit", "").strip())
-        if unit_num < 1 or unit_num > 5:
+        uploaded_by = int(uploaded_by_raw)
+        if uploaded_by < 1:
             raise ValueError
     except (ValueError, TypeError):
-        return jsonify({"success": False, "message": "Invalid unit number"}), 400
+        return jsonify({
+            "success": False,
+            "message": "A valid logged-in user is required"
+        }), 401
 
     # Validate against MySQL database
     file_path = None
@@ -329,29 +403,29 @@ def upload_resource():
         subject_name = subject_row["subject_name"]
 
         # 4. Validate Unit for this Subject
-        cursor.execute(
-            "SELECT unit_id, unit_name FROM units WHERE subject_id = %s AND unit_number = %s",
-            (subject_id, unit_num)
-        )
-        unit_row = cursor.fetchone()
-        if not unit_row:
+        unit_id = None
+        if unit_scope == "unit":
+            cursor.execute(
+                "SELECT unit_id, unit_name FROM units WHERE subject_id = %s AND unit_number = %s",
+                (subject_id, unit_num)
+            )
+            unit_row = cursor.fetchone()
+            if not unit_row:
+                return jsonify({
+                    "success": False,
+                    "message": f"Unit {unit_num} does not exist in the database for '{subject_name}'."
+                }), 400
+            unit_id = unit_row["unit_id"]
+
+        # Confirm the client-provided account ID exists before persisting ownership.
+        cursor.execute("SELECT user_id FROM users WHERE user_id = %s", (uploaded_by,))
+        user_row = cursor.fetchone()
+        if not user_row:
             return jsonify({
                 "success": False,
-                "message": f"Unit {unit_num} does not exist in the database for '{subject_name}'."
-            }), 400
-        unit_id = unit_row["unit_id"]
-
-        # 5. Validate uploaded_by from authenticated user
-        uploaded_by = None
-        if uploaded_by_raw:
-            try:
-                user_pk = int(uploaded_by_raw)
-                cursor.execute("SELECT user_id FROM users WHERE user_id = %s", (user_pk,))
-                user_row = cursor.fetchone()
-                if user_row:
-                    uploaded_by = user_row["user_id"]
-            except (ValueError, TypeError):
-                uploaded_by = None
+                "message": "The logged-in user could not be found"
+            }), 401
+        uploaded_by = user_row["user_id"]
 
         # Safe extension extraction and unique filename generation
         parts = file.filename.rsplit(".", 1)
@@ -384,8 +458,9 @@ def upload_resource():
         # Save metadata to MySQL resources table
         cursor.execute(
             """
-            INSERT INTO resources (title, resource_url, resource_type, subject_id, uploaded_by, unit_id, description)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO resources
+                (title, resource_url, resource_type, subject_id, uploaded_by, unit_id, unit_scope, description)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 title,
@@ -394,7 +469,9 @@ def upload_resource():
                 subject_id,
                 uploaded_by,
                 unit_id,
-                f"Uploaded study resource for {subject_name} Unit {unit_num}"
+                unit_scope,
+                f"Uploaded study resource for {subject_name} "
+                f"{'All Units' if unit_scope == 'all' else f'Unit {unit_num}'}"
             )
         )
         connection.commit()
@@ -407,6 +484,8 @@ def upload_resource():
             "semester": sem_num,
             "subject": subject_name,
             "unit": unit_num,
+            "unit_label": "All Units" if unit_scope == "all" else f"Unit {unit_num}",
+            "unit_scope": unit_scope,
             "type": resource_type,
             "filename": saved_filename,
             "resource_url": f"/uploads/{saved_filename}",

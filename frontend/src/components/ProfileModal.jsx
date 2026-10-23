@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 
 const BUILT_IN_AVATARS = [
   { id: 'avatar1', label: 'Tech Student', src: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="50" fill="%232563eb"/><circle cx="50" cy="40" r="20" fill="%23ffd1b3"/><path d="M50 20c-14 0-22 8-22 18 0 4 2 8 5 10 1-5 4-8 10-10 4 1 10 1 14 0 6 2 9 5 10 10 3-2 5-6 5-10 0-10-8-18-22-18z" fill="%23374151"/><circle cx="43" cy="42" r="6" fill="none" stroke="%231e293b" stroke-width="2"/><circle cx="57" cy="42" r="6" fill="none" stroke="%231e293b" stroke-width="2"/><path d="M49 42h2" stroke="%231e293b" stroke-width="2"/><path d="M45 52c3 2 7 2 10 0" fill="none" stroke="%23e11d48" stroke-width="2" stroke-linecap="round"/><path d="M22 88c5-16 16-24 28-24s23 8 28 24" fill="%231e40af"/></svg>' },
@@ -7,15 +7,58 @@ const BUILT_IN_AVATARS = [
   { id: 'avatar4', label: 'Coder', src: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="50" fill="%23ea580c"/><circle cx="50" cy="42" r="20" fill="%23ffedd5"/><path d="M30 34c4-12 12-16 20-16s16 4 20 16c-6 2-13 3-20 3s-14-1-20-3z" fill="%231f2937"/><path d="M22 34h56l-6 6H28z" fill="%23374151"/><circle cx="43" cy="44" r="2.5" fill="%231f2937"/><circle cx="57" cy="44" r="2.5" fill="%231f2937"/><path d="M45 52c3 2 7 2 10 0" fill="none" stroke="%23c2410c" stroke-width="2" stroke-linecap="round"/><path d="M20 90c5-17 17-25 30-25s25 8 30 25" fill="%23c2410c"/></svg>' }
 ]
 
-function ProfileModal({ user, onClose, onLogout, onNavigate, onUpdateUser }) {
-  const [activeTab, setActiveTab] = useState('profile')
+function ProfileModal({ user, initialTab = 'profile', onClose, onLogout, onNavigate, onUpdateUser }) {
+  const [activeTab, setActiveTab] = useState(initialTab)
   const [isEditing, setIsEditing] = useState(false)
+  const [sharedResources, setSharedResources] = useState([])
+  const [sharedResourcesLoading, setSharedResourcesLoading] = useState(false)
+  const [sharedResourcesError, setSharedResourcesError] = useState('')
 
   // Edit form state
   const [editName, setEditName] = useState(user.name || '')
   const [editBranch, setEditBranch] = useState(user.branch || 'AIML')
   const [editSemester, setEditSemester] = useState(user.semester || 4)
   const [editAvatar, setEditAvatar] = useState(user.avatar || '')
+
+  useEffect(() => {
+    if (activeTab !== 'shared') return
+
+    if (!user?.id) {
+      setSharedResources([])
+      setSharedResourcesError('Unable to load shared resources for this account.')
+      return
+    }
+
+    const controller = new AbortController()
+    async function fetchSharedResources() {
+      setSharedResourcesLoading(true)
+      setSharedResourcesError('')
+
+      try {
+        const params = new URLSearchParams({ user_id: String(user.id) })
+        const response = await fetch(
+          `http://127.0.0.1:5000/resources/shared?${params.toString()}`,
+          { signal: controller.signal }
+        )
+        const result = await response.json()
+        if (!response.ok) {
+          throw new Error(result.message || 'Unable to load shared resources.')
+        }
+        setSharedResources(Array.isArray(result.resources) ? result.resources : [])
+      } catch (error) {
+        if (error.name !== 'AbortError') {
+          setSharedResourcesError(error.message || 'Unable to load shared resources.')
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setSharedResourcesLoading(false)
+        }
+      }
+    }
+
+    fetchSharedResources()
+    return () => controller.abort()
+  }, [activeTab, user?.id])
 
   if (!user) return null
 
@@ -253,20 +296,57 @@ function ProfileModal({ user, onClose, onLogout, onNavigate, onUpdateUser }) {
               )}
 
               {activeTab === 'shared' && (
-                <div className="profile-tab-content">
-                  <p className="empty-tab-text">
-                    You haven't shared any resources yet in this session.
-                  </p>
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    onClick={() => {
-                      onClose()
-                      onNavigate('/share-resource')
-                    }}
-                  >
-                    Share a Study Resource
-                  </button>
+                <div className="profile-tab-content profile-shared-content">
+                  {sharedResourcesLoading ? (
+                    <p className="empty-tab-text" role="status">Loading your shared resources...</p>
+                  ) : sharedResourcesError ? (
+                    <p className="error-message" role="alert">{sharedResourcesError}</p>
+                  ) : sharedResources.length === 0 ? (
+                    <>
+                      <p className="empty-tab-text">You haven't shared any resources yet.</p>
+                      <button
+                        type="button"
+                        className="btn btn-primary"
+                        onClick={() => {
+                          onClose()
+                          onNavigate('/share-resource')
+                        }}
+                      >
+                        Share a Study Resource
+                      </button>
+                    </>
+                  ) : (
+                    <div className="profile-shared-resources">
+                      {sharedResources.map((resource) => (
+                        <article className="resource-card" key={resource.id}>
+                          <div className="card-top-bar"></div>
+                          <h3 className="resource-title">{resource.title}</h3>
+                          <p className="resource-description">
+                            {resource.branch} · Semester {resource.semester}
+                          </p>
+                          <p className="resource-description">
+                            {resource.subject} · {resource.unit_label}
+                          </p>
+                          <p className="resource-description">{resource.type}</p>
+                          {resource.uploaded_at && (
+                            <p className="resource-description">
+                              Uploaded {new Date(resource.uploaded_at).toLocaleDateString()}
+                            </p>
+                          )}
+                          {resource.filename && (
+                            <a
+                              href={`http://127.0.0.1:5000/uploads/${resource.filename}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="btn btn-secondary"
+                            >
+                              View Resource
+                            </a>
+                          )}
+                        </article>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
