@@ -15,16 +15,7 @@ CREATE TABLE IF NOT EXISTS branches (
     branch_name VARCHAR(100) NOT NULL UNIQUE
 );
 
--- 2. Users
-CREATE TABLE IF NOT EXISTS users (
-    user_id INT AUTO_INCREMENT PRIMARY KEY,
-    name VARCHAR(100) NOT NULL,
-    email VARCHAR(100) NOT NULL UNIQUE,
-    password_hash VARCHAR(255) NOT NULL,
-    role VARCHAR(20) NOT NULL DEFAULT 'student'
-);
-
--- 3. Semesters
+-- 2. Semesters
 CREATE TABLE IF NOT EXISTS semesters (
     semester_id INT AUTO_INCREMENT PRIMARY KEY,
     semester_name VARCHAR(50) NOT NULL,
@@ -32,6 +23,19 @@ CREATE TABLE IF NOT EXISTS semesters (
     FOREIGN KEY (branch_id)
         REFERENCES branches(branch_id),
     UNIQUE (semester_name, branch_id)
+);
+
+-- 3. Users
+CREATE TABLE IF NOT EXISTS users (
+    user_id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    email VARCHAR(100) NOT NULL UNIQUE,
+    password_hash VARCHAR(255) NOT NULL,
+    role VARCHAR(20) NOT NULL DEFAULT 'student',
+    branch_id INT NULL,
+    semester_id INT NULL,
+    FOREIGN KEY (branch_id) REFERENCES branches(branch_id),
+    FOREIGN KEY (semester_id) REFERENCES semesters(semester_id)
 );
 
 -- 4. Subjects
@@ -137,6 +141,16 @@ CREATE TABLE IF NOT EXISTS requests (
     FOREIGN KEY (unit_id)
         REFERENCES units(unit_id),
     CHECK (status IN ('Pending', 'Fulfilled', 'Rejected'))
+);
+
+-- 11. Saved Resources
+CREATE TABLE IF NOT EXISTS saved_resources (
+    user_id INT NOT NULL,
+    resource_id INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, resource_id),
+    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+    FOREIGN KEY (resource_id) REFERENCES resources(resource_id) ON DELETE CASCADE
 );
 
 -- End of U-NOTE database schema
