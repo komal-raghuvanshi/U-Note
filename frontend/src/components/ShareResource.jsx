@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { apiFetch } from '../api'
 
 function ShareResource({ onBack, user }) {
   const [submitted, setSubmitted] = useState(false)
@@ -8,6 +9,7 @@ function ShareResource({ onBack, user }) {
 
   const [formData, setFormData] = useState({
     title: '',
+    description: '',
     branch: '',
     semester: '',
     subject: '',
@@ -17,6 +19,26 @@ function ShareResource({ onBack, user }) {
 
   const [subjectOptions, setSubjectOptions] = useState([])
   const [subjectsLoading, setSubjectsLoading] = useState(false)
+
+  const [unitOptions, setUnitOptions] = useState([])
+  const [unitsLoading, setUnitsLoading] = useState(false)
+  const [branchOptions, setBranchOptions] = useState([])
+  const isYouTubeResource = formData.type.toLowerCase().includes('youtube')
+
+  useEffect(() => {
+    let ignore = false
+    apiFetch('/branches')
+      .then(async (response) => {
+        const data = await response.json()
+        if (response.ok && !ignore) {
+          setBranchOptions(Array.isArray(data.branches) ? data.branches : [])
+        }
+      })
+      .catch(() => {
+        if (!ignore) setBranchOptions([])
+      })
+    return () => { ignore = true }
+  }, [])
 
   // Fetch subjects when branch or semester changes
   useEffect(() => {
@@ -31,7 +53,7 @@ function ShareResource({ onBack, user }) {
       if (formData.semester) params.append('semester', formData.semester)
 
       try {
-        const res = await fetch(`http://127.0.0.1:5000/subjects?${params.toString()}`)
+        const res = await apiFetch(`/subjects?${params.toString()}`)
         if (!res.ok) throw new Error('failed')
         const data = await res.json()
         if (!ignore) {
@@ -56,6 +78,42 @@ function ShareResource({ onBack, user }) {
     return () => { ignore = true }
   }, [formData.branch, formData.semester])
 
+  // Fetch units when subject changes
+  useEffect(() => {
+    let ignore = false
+
+    async function fetchUnits() {
+      if (!formData.subject) {
+        setUnitOptions([])
+        return
+      }
+
+      setUnitsLoading(true)
+      const params = new URLSearchParams()
+      params.append('subject', formData.subject)
+      if (formData.branch) params.append('branch', formData.branch)
+      if (formData.semester) params.append('semester', formData.semester)
+
+      try {
+        const res = await apiFetch(`/units?${params.toString()}`)
+        if (!res.ok) throw new Error('failed')
+        const data = await res.json()
+        if (!ignore) {
+          setUnitOptions(Array.isArray(data) ? data : [])
+          setUnitsLoading(false)
+        }
+      } catch {
+        if (!ignore) {
+          setUnitOptions([])
+          setUnitsLoading(false)
+        }
+      }
+    }
+
+    fetchUnits()
+    return () => { ignore = true }
+  }, [formData.subject, formData.branch, formData.semester])
+
   const handleChange = (e) => {
     const { name, value } = e.target
     setFormData((prev) => ({
@@ -73,34 +131,38 @@ function ShareResource({ onBack, user }) {
     event.preventDefault()
     setError('')
 
-    if (!file) {
-      setError('Please select a file.')
+    if (!user?.id) {
+      setError('Please log in before sharing a study resource.')
       return
     }
-    if (!user?.id) {
-      setError('Please log in before sharing a resource.')
+
+    const youtubeUrl = event.currentTarget.elements.youtube_url?.value.trim() || ''
+    if (!file && !youtubeUrl) {
+      setError('Add a valid YouTube URL or choose a file to upload.')
       return
     }
 
     const data = new FormData()
-    data.append('file', file)
+    if (file) data.append('file', file)
     data.append('title', formData.title)
+    data.append('description', formData.description)
     data.append('branch', formData.branch)
     data.append('semester', formData.semester)
     data.append('subject', formData.subject)
     data.append('unit', formData.unit)
     data.append('type', formData.type)
-    data.append('uploaded_by', user.id)
+    if (youtubeUrl) data.append('youtube_url', youtubeUrl)
 
     try {
       setUploading(true)
 
-      const response = await fetch(
-        'http://127.0.0.1:5000/resources/upload',
+      const response = await apiFetch(
+        '/resources/upload',
         {
           method: 'POST',
           body: data
-        }
+        },
+        user.token
       )
 
       const result = await response.json()
@@ -139,6 +201,15 @@ function ShareResource({ onBack, user }) {
             </p>
           </div>
 
+          {!user && (
+            <div className="prototype-badge-box" style={{ backgroundColor: '#fffbeb', borderColor: '#fef3c7' }}>
+              <span className="prototype-badge-pill" style={{ backgroundColor: '#d97706' }}>Notice</span>
+              <p className="prototype-badge-text" style={{ color: '#92400e' }}>
+                You must be logged in with your student account to share resources.
+              </p>
+            </div>
+          )}
+
           {submitted ? (
             <div className="submission-success-card">
               <h3>File Uploaded Successfully!</h3>
@@ -150,7 +221,7 @@ function ShareResource({ onBack, user }) {
 
               <p className="success-note">
                 Your file and resource details have been successfully uploaded and saved to the database.
-                You can now view this resource on the Resources page.
+                You can now view this resource on the Resources page or under My Shared Resources in your profile.
               </p>
 
               <div className="success-actions">
@@ -171,6 +242,7 @@ function ShareResource({ onBack, user }) {
                     setError('')
                     setFormData({
                       title: '',
+                      description: '',
                       branch: '',
                       semester: '',
                       subject: '',
@@ -189,7 +261,7 @@ function ShareResource({ onBack, user }) {
               onSubmit={handleSubmit}
             >
               <div className="form-group">
-                <label htmlFor="title">Resource Title</label>
+                <label htmlFor="title">Resource Title *</label>
                 <input
                   type="text"
                   id="title"
@@ -204,7 +276,7 @@ function ShareResource({ onBack, user }) {
 
               <div className="form-row">
                 <div className="form-group">
-                  <label htmlFor="branch">Branch</label>
+                  <label htmlFor="branch">Branch *</label>
                   <select
                     id="branch"
                     name="branch"
@@ -214,17 +286,14 @@ function ShareResource({ onBack, user }) {
                     required
                   >
                     <option value="" disabled>Select branch</option>
-                    <option value="AIML">AIML</option>
-                    <option value="CSE">CSE</option>
-                    <option value="IT">IT</option>
-                    <option value="EC">EC</option>
-                    <option value="ME">ME</option>
-                    <option value="Civil">Civil</option>
+                    {branchOptions.map((branch) => (
+                      <option key={branch.id} value={branch.name}>{branch.name}</option>
+                    ))}
                   </select>
                 </div>
 
                 <div className="form-group">
-                  <label htmlFor="semester">Semester</label>
+                  <label htmlFor="semester">Semester *</label>
                   <select
                     id="semester"
                     name="semester"
@@ -245,7 +314,7 @@ function ShareResource({ onBack, user }) {
 
               <div className="form-row">
                 <div className="form-group">
-                  <label htmlFor="subject">Subject Name</label>
+                  <label htmlFor="subject">Subject Name *</label>
                   <select
                     id="subject"
                     name="subject"
@@ -263,13 +332,15 @@ function ShareResource({ onBack, user }) {
                           : 'Select subject'}
                     </option>
                     {subjectOptions.map((s) => (
-                      <option key={s.id} value={s.name}>{s.name}</option>
+                      <option key={s.id} value={s.name}>
+                        {s.code ? `${s.code} - ${s.name}` : s.name}
+                      </option>
                     ))}
                   </select>
                 </div>
 
                 <div className="form-group">
-                  <label htmlFor="unit">Unit</label>
+                  <label htmlFor="unit">Unit *</label>
                   <select
                     id="unit"
                     name="unit"
@@ -277,20 +348,27 @@ function ShareResource({ onBack, user }) {
                     value={formData.unit}
                     onChange={handleChange}
                     required
+                    disabled={unitsLoading || !formData.subject}
                   >
-                    <option value="" disabled>Select unit</option>
-                    <option value="all">All Units</option>
-                    {[1, 2, 3, 4, 5].map((u) => (
-                      <option key={u} value={u}>
-                        Unit {u}
-                      </option>
-                    ))}
+                    <option value="" disabled>
+                      {!formData.subject ? 'Select subject first' : unitsLoading ? 'Loading units...' : 'Select unit'}
+                    </option>
+                    <option value="all">All Units (Complete Subject Material)</option>
+                    {unitOptions.length > 0 ? (
+                      unitOptions.map((u) => (
+                        <option key={u.id || u.unit_number} value={u.unit_number}>
+                          Unit {u.unit_number}{u.name ? `: ${u.name}` : ''}
+                        </option>
+                      ))
+                    ) : (
+                      null
+                    )}
                   </select>
                 </div>
               </div>
 
               <div className="form-group">
-                <label htmlFor="type">Resource Type</label>
+                <label htmlFor="type">Resource Type *</label>
                 <select
                   id="type"
                   name="type"
@@ -303,15 +381,45 @@ function ShareResource({ onBack, user }) {
                   <option value="Handwritten Notes">Handwritten Notes</option>
                   <option value="PDF Notes">PDF Notes</option>
                   <option value="Class Notes">Class Notes</option>
-                  <option value="Previous Year Papers">Previous Year Papers</option>
+                  <option value="Previous Year Question Papers">Previous Year Question Papers</option>
                   <option value="Important Questions">Important Questions</option>
-                  <option value="YouTube Lectures">YouTube Lectures</option>
+                  <option value="YouTube Resources">YouTube Resources</option>
                   <option value="Teacher Resources">Teacher Resources</option>
                 </select>
               </div>
 
               <div className="form-group">
-                <label htmlFor="file">Select File (PDF, PNG, JPG, JPEG)</label>
+                <label htmlFor="description">Description (Optional)</label>
+                <textarea
+                  id="description"
+                  name="description"
+                  className="form-control"
+                  rows="3"
+                  placeholder="Add details about topics covered, author, or exam tips..."
+                  value={formData.description}
+                  onChange={handleChange}
+                ></textarea>
+              </div>
+
+              {isYouTubeResource && (
+                <div className="form-group">
+                  <label htmlFor="youtube_url">YouTube URL *</label>
+                  <input
+                    type="url"
+                    id="youtube_url"
+                    name="youtube_url"
+                    className="form-control"
+                    placeholder="https://www.youtube.com/watch?v=..."
+                    pattern="https?://.+"
+                    required={!file}
+                  />
+                </div>
+              )}
+
+              <div className="form-group">
+                <label htmlFor="file">
+                  {isYouTubeResource ? 'Or select a file (PDF, PNG, JPG, JPEG)' : 'Select File (PDF, PNG, JPG, JPEG) *'}
+                </label>
                 <input
                   type="file"
                   id="file"
@@ -319,12 +427,12 @@ function ShareResource({ onBack, user }) {
                   className="form-control file-input"
                   accept=".pdf,.png,.jpg,.jpeg"
                   onChange={(e) => setFile(e.target.files[0] || null)}
-                  required
+                  required={!isYouTubeResource}
                 />
               </div>
 
               {error && (
-                <p className="error-message" role="alert">
+                <p className="error-message" role="alert" style={{ color: '#dc2626', fontWeight: 500, margin: '0.5rem 0' }}>
                   {error}
                 </p>
               )}

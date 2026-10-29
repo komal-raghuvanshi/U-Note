@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { apiFetch } from '../api'
 
 function AuthPages({ mode = 'login', onNavigate, onLoginSuccess }) {
   const isLogin = mode === 'login'
@@ -7,21 +8,41 @@ function AuthPages({ mode = 'login', onNavigate, onLoginSuccess }) {
     email: '',
     password: '',
     branch: '',
-    semester: '1'
+    semester: '4'
   })
+  const [branches, setBranches] = useState([])
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    apiFetch('/branches')
+      .then(async (response) => {
+        const data = await response.json()
+        if (response.ok && active) {
+          setBranches(Array.isArray(data.branches) ? data.branches : [])
+        }
+      })
+      .catch(() => {
+        if (active) setBranches([])
+      })
+    return () => { active = false }
+  }, [])
 
   const handleChange = (e) => {
     const { name, value } = e.target
     setFormData((prev) => ({ ...prev, [name]: value }))
+    setError('')
   }
 
-  
   const handleSubmit = async (e) => {
     e.preventDefault()
+    setError('')
+    setLoading(true)
 
     try {
-      const response = await fetch(
-        `http://127.0.0.1:5000/${isLogin ? 'login' : 'signup'}`,
+      const response = await apiFetch(
+        `/${isLogin ? 'login' : 'signup'}`,
         {
           method: 'POST',
           headers: {
@@ -40,33 +61,24 @@ function AuthPages({ mode = 'login', onNavigate, onLoginSuccess }) {
       const data = await response.json()
 
       if (!response.ok) {
-        alert(data.error || 'Something went wrong')
+        setError(data.error || data.message || 'Authentication failed. Please verify your details.')
+        setLoading(false)
         return
       }
 
       onLoginSuccess({
         ...data.user,
-        branch: data.user.branch || formData.branch,
-        semester: data.user.semester
-          ? Number(data.user.semester.replace('Semester ', ''))
-          : Number(formData.semester)
+        token: data.token,
+        branch: data.user.branch || '',
+        semester: data.user.semester || ''
       })
 
       onNavigate('/')
     } catch {
-      alert('Unable to connect to the server. Please try again.')
+      setError('Unable to connect to the backend server. Please verify Flask is running on port 5000.')
+    } finally {
+      setLoading(false)
     }
-  }
-
-
-  const handleDemoSignIn = () => {
-    onLoginSuccess({
-      name: 'Aman Patel',
-      email: 'aman.patel@rgpv.ac.in',
-      branch: 'CSE',
-      semester: 4
-    })
-    onNavigate('/')
   }
 
   return (
@@ -79,15 +91,15 @@ function AuthPages({ mode = 'login', onNavigate, onLoginSuccess }) {
             </h1>
             <p className="auth-subtitle">
               {isLogin
-                ? 'Access your saved notes, upload history, and study requests.'
-                : 'Join the community to find and share RGPV study resources.'}
+                ? 'Access your uploaded notes, profile, and study materials.'
+                : 'Join the JIT Borawan & RGPV community to share and access study resources.'}
             </p>
           </div>
 
-          <div className="prototype-badge-box">
-            <span className="prototype-badge-pill">UI Prototype</span>
-            <p className="prototype-badge-text">
-              Backend database authentication is in progress. You can use the Demo Sign In button below to test the profile navigation and user menu.
+          <div className="prototype-badge-box" style={{ backgroundColor: '#eff6ff', borderColor: '#bfdbfe' }}>
+            <span className="prototype-badge-pill" style={{ backgroundColor: '#1d4ed8' }}>Portal</span>
+            <p className="prototype-badge-text" style={{ color: '#1e40af' }}>
+              Sign in or create an account to manage your study resources.
             </p>
           </div>
 
@@ -100,7 +112,7 @@ function AuthPages({ mode = 'login', onNavigate, onLoginSuccess }) {
                   id="name"
                   name="name"
                   className="form-control"
-                  placeholder="e.g. Aman Patel"
+                  placeholder="e.g. Komal Raghuvanshi"
                   value={formData.name}
                   onChange={handleChange}
                   required
@@ -115,7 +127,7 @@ function AuthPages({ mode = 'login', onNavigate, onLoginSuccess }) {
                 id="email"
                 name="email"
                 className="form-control"
-                placeholder="student@college.edu or gmail"
+                placeholder="student@jitborawan.com or gmail"
                 value={formData.email}
                 onChange={handleChange}
                 required
@@ -149,12 +161,9 @@ function AuthPages({ mode = 'login', onNavigate, onLoginSuccess }) {
                     required
                   >
                     <option value="" disabled>Select branch</option>
-                    <option value="AIML">AIML</option>
-                    <option value="CSE">CSE</option>
-                    <option value="IT">IT</option>
-                    <option value="EC">EC</option>
-                    <option value="ME">ME</option>
-                    <option value="Civil">Civil</option>
+                    {branches.map((branch) => (
+                      <option key={branch.id} value={branch.name}>{branch.name}</option>
+                    ))}
                   </select>
                 </div>
 
@@ -178,18 +187,21 @@ function AuthPages({ mode = 'login', onNavigate, onLoginSuccess }) {
               </div>
             )}
 
+            {error && (
+              <p className="error-message" role="alert" style={{ color: '#dc2626', fontWeight: 500, margin: '0.25rem 0' }}>
+                {error}
+              </p>
+            )}
+
             <div className="auth-actions">
-              <button type="submit" className="btn btn-primary auth-submit-btn">
-                {isLogin ? 'Log In' : 'Create Account'}
+              <button
+                type="submit"
+                className="btn btn-primary auth-submit-btn"
+                disabled={loading}
+              >
+                {loading ? 'Processing...' : (isLogin ? 'Log In' : 'Create Account')}
               </button>
 
-              <button
-                type="button"
-                className="btn btn-secondary demo-login-btn"
-                onClick={handleDemoSignIn}
-              >
-                Sign In with Demo Student Profile
-              </button>
             </div>
           </form>
 
@@ -200,7 +212,7 @@ function AuthPages({ mode = 'login', onNavigate, onLoginSuccess }) {
                 <button
                   type="button"
                   className="text-link-btn"
-                  onClick={() => onNavigate('/signup')}
+                  onClick={() => { setError(''); onNavigate('/signup') }}
                 >
                   Sign Up
                 </button>
@@ -211,7 +223,7 @@ function AuthPages({ mode = 'login', onNavigate, onLoginSuccess }) {
                 <button
                   type="button"
                   className="text-link-btn"
-                  onClick={() => onNavigate('/login')}
+                  onClick={() => { setError(''); onNavigate('/login') }}
                 >
                   Log In
                 </button>

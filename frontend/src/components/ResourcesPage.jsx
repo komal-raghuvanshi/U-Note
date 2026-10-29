@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
+import { apiFetch, apiUrl } from '../api'
 
 function ResourcesPage({ onSelectResource, onShareClick, initialType = '' }) {
   const [resources, setResources] = useState([])
   const [loading, setLoading] = useState(true)
+  const [resourceError, setResourceError] = useState('')
   const [visibleCount, setVisibleCount] = useState(6)
 
   // Filters state initialized with initialType
@@ -13,14 +15,32 @@ function ResourcesPage({ onSelectResource, onShareClick, initialType = '' }) {
   const [unit, setUnit] = useState('')
   const [type, setType] = useState(initialType)
 
-  // Dynamic subject list fetched from the backend /subjects endpoint.
+  // Dynamic subject list fetched from backend
   const [subjectOptions, setSubjectOptions] = useState([])
   const [subjectsLoading, setSubjectsLoading] = useState(false)
   const [subjectsError, setSubjectsError] = useState(false)
 
-  // Fetch subject options whenever branch or semester changes.
-  // The /subjects API accepts ?branch=AIML&semester=4 and returns a plain
-  // JSON array of { id, name, branch, semester } objects.
+  // Dynamic unit list fetched from backend for selected subject
+  const [unitOptions, setUnitOptions] = useState([])
+  const [unitsLoading, setUnitsLoading] = useState(false)
+  const [branchOptions, setBranchOptions] = useState([])
+
+  useEffect(() => {
+    let ignore = false
+    apiFetch('/branches')
+      .then(async (response) => {
+        const data = await response.json()
+        if (response.ok && !ignore) {
+          setBranchOptions(Array.isArray(data.branches) ? data.branches : [])
+        }
+      })
+      .catch(() => {
+        if (!ignore) setBranchOptions([])
+      })
+    return () => { ignore = true }
+  }, [])
+
+  // Fetch subject options whenever branch or semester changes
   useEffect(() => {
     let ignore = false
 
@@ -34,7 +54,7 @@ function ResourcesPage({ onSelectResource, onShareClick, initialType = '' }) {
       if (semester) params.append('semester', semester)
 
       try {
-        const res = await fetch(`http://127.0.0.1:5000/subjects?${params.toString()}`)
+        const res = await apiFetch(`/subjects?${params.toString()}`)
         if (!res.ok) throw new Error('failed')
         const data = await res.json()
         if (!ignore) {
@@ -54,8 +74,45 @@ function ResourcesPage({ onSelectResource, onShareClick, initialType = '' }) {
     return () => { ignore = true }
   }, [branch, semester])
 
+  // Fetch unit options whenever subject, branch, or semester changes
+  useEffect(() => {
+    let ignore = false
+
+    async function fetchUnits() {
+      if (!subject) {
+        setUnitOptions([])
+        return
+      }
+
+      setUnitsLoading(true)
+      const params = new URLSearchParams()
+      params.append('subject', subject)
+      if (branch) params.append('branch', branch)
+      if (semester) params.append('semester', semester)
+
+      try {
+        const res = await apiFetch(`/units?${params.toString()}`)
+        if (!res.ok) throw new Error('failed')
+        const data = await res.json()
+        if (!ignore) {
+          setUnitOptions(Array.isArray(data) ? data : [])
+          setUnitsLoading(false)
+        }
+      } catch {
+        if (!ignore) {
+          setUnitOptions([])
+          setUnitsLoading(false)
+        }
+      }
+    }
+
+    fetchUnits()
+    return () => { ignore = true }
+  }, [subject, branch, semester])
+
   const loadResources = useCallback((queryOverride = {}) => {
     setLoading(true)
+    setResourceError('')
     const activeSearch = queryOverride.search !== undefined ? queryOverride.search : search
     const activeBranch = queryOverride.branch !== undefined ? queryOverride.branch : branch
     const activeSemester = queryOverride.semester !== undefined ? queryOverride.semester : semester
@@ -71,10 +128,12 @@ function ResourcesPage({ onSelectResource, onShareClick, initialType = '' }) {
     if (activeUnit) params.append('unit', activeUnit)
     if (activeType) params.append('type', activeType)
 
-    const url = `http://127.0.0.1:5000/resources?${params.toString()}`
-
-    fetch(url)
-      .then((res) => res.json())
+    apiFetch(`/resources?${params.toString()}`)
+      .then(async (res) => {
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.message || 'Unable to load resources.')
+        return data
+      })
       .then((data) => {
         setResources(data.resources || [])
         setLoading(false)
@@ -82,6 +141,8 @@ function ResourcesPage({ onSelectResource, onShareClick, initialType = '' }) {
       })
       .catch((err) => {
         console.error('Error fetching resources:', err)
+        setResourceError(err.message || 'Unable to load resources.')
+        setResources([])
         setLoading(false)
       })
   }, [search, branch, semester, subject, unit, type])
@@ -92,10 +153,13 @@ function ResourcesPage({ onSelectResource, onShareClick, initialType = '' }) {
     const params = new URLSearchParams()
     if (initialType) params.append('type', initialType)
 
-    const url = `http://127.0.0.1:5000/resources?${params.toString()}`
-
-    fetch(url)
-      .then((res) => res.json())
+    setResourceError('')
+    apiFetch(`/resources?${params.toString()}`)
+      .then(async (res) => {
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.message || 'Unable to load resources.')
+        return data
+      })
       .then((data) => {
         if (!ignore) {
           setResources(data.resources || [])
@@ -105,6 +169,7 @@ function ResourcesPage({ onSelectResource, onShareClick, initialType = '' }) {
       .catch((err) => {
         if (!ignore) {
           console.error('Error fetching resources:', err)
+          setResourceError(err.message || 'Unable to load resources.')
           setLoading(false)
         }
       })
@@ -116,18 +181,21 @@ function ResourcesPage({ onSelectResource, onShareClick, initialType = '' }) {
   const handleBranchChange = (newBranch) => {
     setBranch(newBranch)
     setSubject('')
-    loadResources({ branch: newBranch, subject: '' })
+    setUnit('')
+    loadResources({ branch: newBranch, subject: '', unit: '' })
   }
 
   const handleSemesterChange = (newSemester) => {
     setSemester(newSemester)
     setSubject('')
-    loadResources({ semester: newSemester, subject: '' })
+    setUnit('')
+    loadResources({ semester: newSemester, subject: '', unit: '' })
   }
 
   const handleSubjectChange = (newSubject) => {
     setSubject(newSubject)
-    loadResources({ subject: newSubject })
+    setUnit('')
+    loadResources({ subject: newSubject, unit: '' })
   }
 
   const handleUnitChange = (newUnit) => {
@@ -220,12 +288,9 @@ function ResourcesPage({ onSelectResource, onShareClick, initialType = '' }) {
                 onChange={(e) => handleBranchChange(e.target.value)}
               >
                 <option value="">All Branches</option>
-                <option value="AIML">AIML</option>
-                <option value="CSE">CSE</option>
-                <option value="IT">IT</option>
-                <option value="EC">EC</option>
-                <option value="ME">ME</option>
-                <option value="Civil">Civil</option>
+                {branchOptions.map((option) => (
+                  <option key={option.id} value={option.name}>{option.name}</option>
+                ))}
               </select>
             </div>
 
@@ -259,12 +324,13 @@ function ResourcesPage({ onSelectResource, onShareClick, initialType = '' }) {
                 <option value="">{subjectPlaceholder}</option>
                 {subjectOptions.map((s) => (
                   <option key={s.id} value={s.name}>
-                    {s.name}
+                    {s.code ? `${s.code} - ${s.name}` : s.name}
                   </option>
                 ))}
               </select>
             </div>
 
+            {/* Unit dropdown — populated dynamically when subject is chosen */}
             <div className="filter-item">
               <label htmlFor="filter-unit">Unit</label>
               <select
@@ -272,13 +338,16 @@ function ResourcesPage({ onSelectResource, onShareClick, initialType = '' }) {
                 className="form-control"
                 value={unit}
                 onChange={(e) => handleUnitChange(e.target.value)}
+                disabled={unitsLoading}
               >
                 <option value="">All Units</option>
-                {[1, 2, 3, 4, 5].map((u) => (
-                  <option key={u} value={u}>
-                    Unit {u}
-                  </option>
-                ))}
+                {unitOptions.length > 0 ? (
+                  unitOptions.map((u) => (
+                    <option key={u.id || u.unit_number} value={u.unit_number}>
+                      Unit {u.unit_number}{u.name ? `: ${u.name}` : ''}
+                    </option>
+                  ))
+                ) : null}
               </select>
             </div>
 
@@ -294,9 +363,9 @@ function ResourcesPage({ onSelectResource, onShareClick, initialType = '' }) {
                 <option value="Handwritten Notes">Handwritten Notes</option>
                 <option value="PDF Notes">PDF Notes</option>
                 <option value="Class Notes">Class Notes</option>
-                <option value="Previous Year Papers">Previous Year Papers</option>
+                <option value="Previous Year Question Papers">Previous Year Question Papers</option>
                 <option value="Important Questions">Important Questions</option>
-                <option value="YouTube Lectures">YouTube Lectures</option>
+                <option value="YouTube Resources">YouTube Resources</option>
                 <option value="Teacher Resources">Teacher Resources</option>
               </select>
             </div>
@@ -323,7 +392,15 @@ function ResourcesPage({ onSelectResource, onShareClick, initialType = '' }) {
           </p>
         </div>
 
-        {loading ? (
+        {resourceError ? (
+          <div className="no-results-box" role="alert">
+            <h3>Resources could not be loaded</h3>
+            <p>{resourceError}</p>
+            <button type="button" className="btn btn-primary" onClick={() => loadResources()}>
+              Try Again
+            </button>
+          </div>
+        ) : loading ? (
           <div className="resources-loading-box">
             <p>Fetching resources from the Flask backend...</p>
           </div>
@@ -359,23 +436,48 @@ function ResourcesPage({ onSelectResource, onShareClick, initialType = '' }) {
                     {resource.branch} · Semester {resource.semester}
                   </p>
                   <p className="resource-description">
+                    {resource.subject_code ? `${resource.subject_code} - ` : ''}
                     {resource.subject} · {resource.unit_label || `Unit ${resource.unit}`}
                   </p>
                   <p className="resource-description">{resource.type}</p>
-                  {resource.filename && (
-                    <div style={{ marginTop: '0.75rem' }}>
+
+                  <div style={{ marginTop: '0.85rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                    {resource.filename && (
+                      <>
+                        <a
+                          href={apiUrl(`/uploads/${resource.filename}`)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="btn btn-secondary"
+                          style={{ fontSize: '0.82rem', padding: '0.35rem 0.75rem', textDecoration: 'none' }}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          View File
+                        </a>
+                        <a
+                          href={apiUrl(`/download/${resource.filename}`)}
+                          download
+                          className="btn btn-outline"
+                          style={{ fontSize: '0.82rem', padding: '0.35rem 0.75rem', textDecoration: 'none' }}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          Download
+                        </a>
+                      </>
+                    )}
+                    {resource.is_external && resource.resource_url && (
                       <a
-                        href={`http://127.0.0.1:5000/uploads/${resource.filename}`}
+                        href={resource.resource_url}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="btn btn-secondary"
-                        style={{ display: 'inline-block', fontSize: '0.85rem', padding: '0.35rem 0.75rem', textDecoration: 'none' }}
+                        style={{ fontSize: '0.82rem', padding: '0.35rem 0.75rem', textDecoration: 'none' }}
                         onClick={(e) => e.stopPropagation()}
                       >
-                        View PDF
+                        Open Resource &rarr;
                       </a>
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
               ))}
             </div>

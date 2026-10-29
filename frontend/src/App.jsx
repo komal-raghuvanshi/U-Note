@@ -9,6 +9,8 @@ import ContactPage from './components/ContactPage'
 import AuthPages from './components/AuthPages'
 import ProfileModal from './components/ProfileModal'
 import AboutPage from './components/AboutPage'
+import RequestsPage from './components/RequestsPage'
+import { apiFetch, apiUrl } from './api'
 import './App.css'
 
 function App() {
@@ -27,17 +29,20 @@ function App() {
 
   const [previewResources, setPreviewResources] = useState([])
   const [loadingPreview, setLoadingPreview] = useState(true)
+  const [previewError, setPreviewError] = useState('')
   const [selectedResource, setSelectedResource] = useState(null)
   const [showProfileModal, setShowProfileModal] = useState(false)
   const [profileInitialTab, setProfileInitialTab] = useState('profile')
   const [user, setUser] = useState(() => {
     try {
       const saved = localStorage.getItem('unote_user')
-      return saved ? JSON.parse(saved) : null
+      const parsed = saved ? JSON.parse(saved) : null
+      return parsed?.token && parsed?.id ? parsed : null
     } catch {
       return null
     }
   })
+  const savedAvatar = user?.avatar
 
   // Sync route with browser history (Back / Forward)
   useEffect(() => {
@@ -64,17 +69,49 @@ function App() {
 
   // Fetch initial sample resources for Homepage preview
   useEffect(() => {
-    fetch('http://127.0.0.1:5000/resources')
-      .then((res) => res.json())
+    apiFetch('/resources')
+      .then(async (res) => {
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.message || 'Unable to load featured resources.')
+        return data
+      })
       .then((data) => {
         setPreviewResources(data.resources || [])
         setLoadingPreview(false)
       })
       .catch((err) => {
         console.error('Error fetching preview resources:', err)
+        setPreviewError(err.message || 'Unable to load featured resources.')
         setLoadingPreview(false)
       })
   }, [])
+
+  useEffect(() => {
+    if (!user?.token) return undefined
+
+    const controller = new AbortController()
+    apiFetch('/profile', { signal: controller.signal }, user.token)
+      .then(async (response) => {
+        if (response.status === 401) {
+          setUser(null)
+          localStorage.removeItem('unote_user')
+          return
+        }
+        if (!response.ok) return
+        const data = await response.json()
+        if (!controller.signal.aborted && data.user) {
+          const refreshedUser = { ...data.user, token: user.token, avatar: savedAvatar || '' }
+          setUser(refreshedUser)
+          localStorage.setItem('unote_user', JSON.stringify(refreshedUser))
+        }
+      })
+      .catch((error) => {
+        if (error.name !== 'AbortError') {
+          console.error('Unable to refresh the current profile:', error)
+        }
+      })
+    return () => controller.abort()
+  }, [user?.token, savedAvatar])
 
   const navigate = (pathWithQuery, targetSectionId = null) => {
     const destination = new URL(pathWithQuery, window.location.origin)
@@ -151,6 +188,9 @@ function App() {
             onShareClick={() => navigate('/share-resource')}
           />
         )
+
+      case '/requests':
+        return <RequestsPage user={user} onNavigate={navigate} />
 
       case '/share-resource':
         return <ShareResource onBack={() => navigate('/')} user={user} />
@@ -241,25 +281,50 @@ function App() {
                           {resource.subject} · {resource.unit_label || `Unit ${resource.unit}`}
                         </p>
                         <p className="resource-description">{resource.type}</p>
-                        {resource.filename && (
-                          <div style={{ marginTop: '0.75rem' }}>
+                        <div style={{ marginTop: '0.75rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                          {resource.filename && (
+                            <>
+                              <a
+                                href={apiUrl(`/uploads/${resource.filename}`)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="btn btn-secondary"
+                                style={{ display: 'inline-block', fontSize: '0.82rem', padding: '0.3rem 0.65rem', textDecoration: 'none' }}
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                View File
+                              </a>
+                              <a
+                                href={apiUrl(`/download/${resource.filename}`)}
+                                download
+                                className="btn btn-outline"
+                                style={{ display: 'inline-block', fontSize: '0.82rem', padding: '0.3rem 0.65rem', textDecoration: 'none' }}
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                Download
+                              </a>
+                            </>
+                          )}
+                          {resource.is_external && resource.resource_url && (
                             <a
-                              href={`http://127.0.0.1:5000/uploads/${resource.filename}`}
+                              href={resource.resource_url}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="btn btn-secondary"
-                              style={{ display: 'inline-block', fontSize: '0.85rem', padding: '0.35rem 0.75rem', textDecoration: 'none' }}
+                              style={{ display: 'inline-block', fontSize: '0.82rem', padding: '0.3rem 0.65rem', textDecoration: 'none' }}
                               onClick={(e) => e.stopPropagation()}
                             >
-                              View PDF
+                              Open Resource &rarr;
                             </a>
-                          </div>
-                        )}
+                          )}
+                        </div>
                       </div>
                     ))
                   ) : (
                     <p className="no-resources-msg">
-                      {loadingPreview
+                      {previewError
+                        ? previewError
+                        : loadingPreview
                         ? 'Loading resources from backend...'
                         : 'No study resources have been uploaded yet. Be the first to share!'}
                     </p>
@@ -338,6 +403,7 @@ function App() {
       {selectedResource && (
         <ResourceDetailsModal
           resource={selectedResource}
+          user={user}
           onClose={() => setSelectedResource(null)}
         />
       )}

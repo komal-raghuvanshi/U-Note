@@ -30,22 +30,15 @@ function ContactPage() {
           </p>
         </div>
 
-        <div className="prototype-badge-box max-w-680">
-          <span className="prototype-badge-pill">UI Prototype</span>
-          <p className="prototype-badge-text">
-            Contact form submissions are currently front-end preview mode until the notification backend is linked.
-          </p>
-        </div>
-
         <div className="contact-card-wrapper">
           {submitted ? (
             <div className="submission-success-card">
-              <h3>Message Received!</h3>
+              <h3>Message prepared</h3>
               <p>
-                Thank you, <strong>{formData.name}</strong>. Your message regarding <em>"{formData.subject}"</em> has been received.
+                Thank you for preparing a message, <strong>{formData.name}</strong>.
               </p>
               <p className="success-note">
-                Our student team will review your feedback and get back to you at {formData.email}.
+                This form is not connected to a backend, so your message has not been sent or saved.
               </p>
               <button
                 type="button"

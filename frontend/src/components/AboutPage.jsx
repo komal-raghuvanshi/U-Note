@@ -142,7 +142,7 @@ function AboutPage({ onNavigate }) {
           <div className="section-header">
             <h2 className="section-title">Our Team</h2>
             <p className="section-description">
-              U-NOTE is developed as a Minor Project-I by four RGPV students.
+              U-NOTE is developed as Minor Project-I at Jawaharlal Institute of Technology (JIT), Borawan, for RGPV.
             </p>
           </div>
           <div className="about-team-grid">

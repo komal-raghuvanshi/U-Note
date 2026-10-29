@@ -69,6 +69,13 @@ function Navbar({ onNavigate, currentPath = '/', user, onOpenProfile, onLogout }
             Resources
           </a>
           <a
+            href="/requests"
+            className={`nav-link ${currentPath === '/requests' ? 'active' : ''}`}
+            onClick={(e) => handleLinkClick(e, '/requests')}
+          >
+            Requests
+          </a>
+          <a
             href="/help"
             className={`nav-link ${currentPath === '/help' ? 'active' : ''}`}
             onClick={(e) => handleLinkClick(e, '/help')}

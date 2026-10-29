@@ -18,7 +18,7 @@ function HelpPage({ onNavigate }) {
     },
     {
       q: 'How can I contribute or share my notes?',
-      a: 'Click the "Share Resources" button in the hero section or top banner. Fill out the resource title, choose your branch, semester, subject, and unit, and attach your file (PDF, DOCX, or images). Contributions help build an open community of study materials for all RGPV students.'
+      a: 'Click "Share a Resource", choose your branch, semester, subject, and unit, then upload a PDF or image. YouTube resource types can be submitted as a link. Contributions help build an open community of study materials for all RGPV students.'
     },
     {
       q: 'Are the resources on U-NOTE free to access?',

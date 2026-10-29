@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { apiFetch, apiUrl } from '../api'
 
 const BUILT_IN_AVATARS = [
   { id: 'avatar1', label: 'Tech Student', src: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="50" fill="%232563eb"/><circle cx="50" cy="40" r="20" fill="%23ffd1b3"/><path d="M50 20c-14 0-22 8-22 18 0 4 2 8 5 10 1-5 4-8 10-10 4 1 10 1 14 0 6 2 9 5 10 10 3-2 5-6 5-10 0-10-8-18-22-18z" fill="%23374151"/><circle cx="43" cy="42" r="6" fill="none" stroke="%231e293b" stroke-width="2"/><circle cx="57" cy="42" r="6" fill="none" stroke="%231e293b" stroke-width="2"/><path d="M49 42h2" stroke="%231e293b" stroke-width="2"/><path d="M45 52c3 2 7 2 10 0" fill="none" stroke="%23e11d48" stroke-width="2" stroke-linecap="round"/><path d="M22 88c5-16 16-24 28-24s23 8 28 24" fill="%231e40af"/></svg>' },
@@ -13,19 +14,24 @@ function ProfileModal({ user, initialTab = 'profile', onClose, onLogout, onNavig
   const [sharedResources, setSharedResources] = useState([])
   const [sharedResourcesLoading, setSharedResourcesLoading] = useState(false)
   const [sharedResourcesError, setSharedResourcesError] = useState('')
+  const [savedResources, setSavedResources] = useState([])
+  const [savedResourcesError, setSavedResourcesError] = useState('')
+  const [deletingId, setDeletingId] = useState(null)
+  const [savingProfile, setSavingProfile] = useState(false)
+  const [profileError, setProfileError] = useState('')
 
   // Edit form state
-  const [editName, setEditName] = useState(user.name || '')
-  const [editBranch, setEditBranch] = useState(user.branch || 'AIML')
-  const [editSemester, setEditSemester] = useState(user.semester || 4)
-  const [editAvatar, setEditAvatar] = useState(user.avatar || '')
+  const [editName, setEditName] = useState(user?.name || '')
+  const [editBranch, setEditBranch] = useState(user?.branch || 'AIML')
+  const [editSemester, setEditSemester] = useState(user?.semester || 4)
+  const [editAvatar, setEditAvatar] = useState(user?.avatar || '')
 
   useEffect(() => {
     if (activeTab !== 'shared') return
 
     if (!user?.id) {
       setSharedResources([])
-      setSharedResourcesError('Unable to load shared resources for this account.')
+      setSharedResourcesError('Unable to load shared resources. Please log in again.')
       return
     }
 
@@ -35,11 +41,7 @@ function ProfileModal({ user, initialTab = 'profile', onClose, onLogout, onNavig
       setSharedResourcesError('')
 
       try {
-        const params = new URLSearchParams({ user_id: String(user.id) })
-        const response = await fetch(
-          `http://127.0.0.1:5000/resources/shared?${params.toString()}`,
-          { signal: controller.signal }
-        )
+        const response = await apiFetch('/resources/shared', { signal: controller.signal }, user.token)
         const result = await response.json()
         if (!response.ok) {
           throw new Error(result.message || 'Unable to load shared resources.')
@@ -58,7 +60,31 @@ function ProfileModal({ user, initialTab = 'profile', onClose, onLogout, onNavig
 
     fetchSharedResources()
     return () => controller.abort()
-  }, [activeTab, user?.id])
+  }, [activeTab, user?.id, user?.token])
+
+  useEffect(() => {
+    if (activeTab !== 'saved') return undefined
+
+    const controller = new AbortController()
+    async function fetchSavedResources() {
+      setSavedResourcesError('')
+      try {
+        const response = await apiFetch('/resources/saved', { signal: controller.signal }, user.token)
+        const data = await response.json()
+        if (!response.ok) throw new Error(data.message || 'Unable to load saved resources.')
+        if (!controller.signal.aborted) {
+          setSavedResources(Array.isArray(data.resources) ? data.resources : [])
+        }
+      } catch (error) {
+        if (error.name !== 'AbortError') {
+          setSavedResourcesError(error.message || 'Unable to load saved resources.')
+        }
+      }
+    }
+
+    fetchSavedResources()
+    return () => controller.abort()
+  }, [activeTab, user?.token])
 
   if (!user) return null
 
@@ -85,19 +111,56 @@ function ProfileModal({ user, initialTab = 'profile', onClose, onLogout, onNavig
     }
   }
 
-  const handleSaveProfile = (e) => {
+  const handleSaveProfile = async (e) => {
     e.preventDefault()
-    const updated = {
-      ...user,
-      name: editName.trim() || user.name,
-      branch: editBranch,
-      semester: Number(editSemester),
-      avatar: editAvatar
+    setProfileError('')
+    setSavingProfile(true)
+    try {
+      const response = await apiFetch('/profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: editName.trim(),
+          branch: editBranch,
+          semester: Number(editSemester)
+        })
+      }, user.token)
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.message || 'Unable to save profile changes.')
+      if (onUpdateUser) {
+        onUpdateUser({
+          ...data.user,
+          token: user.token,
+          avatar: editAvatar
+        })
+      }
+      setIsEditing(false)
+    } catch (error) {
+      setProfileError(error.message || 'Unable to save profile changes.')
+    } finally {
+      setSavingProfile(false)
     }
-    if (onUpdateUser) {
-      onUpdateUser(updated)
+  }
+
+  const handleDeleteResource = async (resourceId, title) => {
+    if (!window.confirm(`Are you sure you want to delete "${title}"?`)) {
+      return
     }
-    setIsEditing(false)
+
+    setDeletingId(resourceId)
+    try {
+      const response = await apiFetch(`/resources/${resourceId}`, { method: 'DELETE' }, user.token)
+      const data = await response.json()
+      if (!response.ok) {
+        throw new Error(data.message || 'Failed to delete resource.')
+      }
+
+      setSharedResources((prev) => prev.filter((r) => r.id !== resourceId))
+    } catch (err) {
+      alert(err.message || 'Error deleting resource.')
+    } finally {
+      setDeletingId(null)
+    }
   }
 
   return (
@@ -153,7 +216,7 @@ function ProfileModal({ user, initialTab = 'profile', onClose, onLogout, onNavig
               className={`profile-tab-btn ${activeTab === 'shared' ? 'active' : ''}`}
               onClick={() => setActiveTab('shared')}
             >
-              My Shared Resources
+              My Shared Resources {sharedResources.length > 0 && `(${sharedResources.length})`}
             </button>
             <button
               type="button"
@@ -169,14 +232,6 @@ function ProfileModal({ user, initialTab = 'profile', onClose, onLogout, onNavig
           {isEditing ? (
             /* Edit Profile Form */
             <form className="profile-edit-form" onSubmit={handleSaveProfile}>
-              <div className="prototype-badge-box">
-                <span className="prototype-badge-pill">Session Storage</span>
-                <p className="prototype-badge-text">
-                  Profile edits are saved for your current browsing session. Permanent database sync will connect with the backend.
-                </p>
-              </div>
-
-              {/* Avatar Selection */}
               <div className="avatar-picker-section">
                 <label className="avatar-picker-label">Choose Avatar or Upload Photo</label>
 
@@ -258,9 +313,11 @@ function ProfileModal({ user, initialTab = 'profile', onClose, onLogout, onNavig
                 </div>
               </div>
 
+              {profileError && <p className="error-message" role="alert">{profileError}</p>}
+
               <div className="edit-actions-row">
-                <button type="submit" className="btn btn-primary">
-                  Save Changes
+                <button type="submit" className="btn btn-primary" disabled={savingProfile}>
+                  {savingProfile ? 'Saving...' : 'Save Changes'}
                 </button>
                 <button
                   type="button"
@@ -281,8 +338,8 @@ function ProfileModal({ user, initialTab = 'profile', onClose, onLogout, onNavig
                     <span className="meta-value">{user.name}</span>
                   </div>
                   <div className="meta-item">
-                    <span className="meta-label">College Affiliation</span>
-                    <span className="meta-value">RGPV Affiliated College</span>
+                    <span className="meta-label">Institution</span>
+                    <span className="meta-value">JIT Borawan (RGPV Affiliated)</span>
                   </div>
                   <div className="meta-item">
                     <span className="meta-label">Branch</span>
@@ -298,12 +355,12 @@ function ProfileModal({ user, initialTab = 'profile', onClose, onLogout, onNavig
               {activeTab === 'shared' && (
                 <div className="profile-tab-content profile-shared-content">
                   {sharedResourcesLoading ? (
-                    <p className="empty-tab-text" role="status">Loading your shared resources...</p>
+                    <p className="empty-tab-text" role="status">Loading your shared resources from MySQL...</p>
                   ) : sharedResourcesError ? (
                     <p className="error-message" role="alert">{sharedResourcesError}</p>
                   ) : sharedResources.length === 0 ? (
                     <>
-                      <p className="empty-tab-text">You haven't shared any resources yet.</p>
+                      <p className="empty-tab-text">You haven't shared any study resources yet.</p>
                       <button
                         type="button"
                         className="btn btn-primary"
@@ -318,31 +375,53 @@ function ProfileModal({ user, initialTab = 'profile', onClose, onLogout, onNavig
                   ) : (
                     <div className="profile-shared-resources">
                       {sharedResources.map((resource) => (
-                        <article className="resource-card" key={resource.id}>
+                        <article className="resource-card" key={resource.id} style={{ marginBottom: '1rem' }}>
                           <div className="card-top-bar"></div>
                           <h3 className="resource-title">{resource.title}</h3>
                           <p className="resource-description">
                             {resource.branch} · Semester {resource.semester}
                           </p>
                           <p className="resource-description">
-                            {resource.subject} · {resource.unit_label}
+                            {resource.subject} · {resource.unit_label || `Unit ${resource.unit}`}
                           </p>
                           <p className="resource-description">{resource.type}</p>
                           {resource.uploaded_at && (
-                            <p className="resource-description">
-                              Uploaded {new Date(resource.uploaded_at).toLocaleDateString()}
+                            <p className="resource-description" style={{ fontSize: '0.8rem', color: '#64748b' }}>
+                              Uploaded: {new Date(resource.uploaded_at).toLocaleDateString()}
                             </p>
                           )}
-                          {resource.filename && (
-                            <a
-                              href={`http://127.0.0.1:5000/uploads/${resource.filename}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="btn btn-secondary"
+                          <div style={{ marginTop: '0.75rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                            {resource.filename && (
+                              <>
+                                <a
+                                  href={apiUrl(`/uploads/${resource.filename}`)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="btn btn-secondary"
+                                  style={{ fontSize: '0.8rem', padding: '0.3rem 0.65rem' }}
+                                >
+                                  View File
+                                </a>
+                                <a
+                                  href={apiUrl(`/download/${resource.filename}`)}
+                                  download
+                                  className="btn btn-outline"
+                                  style={{ fontSize: '0.8rem', padding: '0.3rem 0.65rem' }}
+                                >
+                                  Download
+                                </a>
+                              </>
+                            )}
+                            <button
+                              type="button"
+                              className="btn btn-outline-danger"
+                              style={{ fontSize: '0.8rem', padding: '0.3rem 0.65rem', marginLeft: 'auto' }}
+                              disabled={deletingId === resource.id}
+                              onClick={() => handleDeleteResource(resource.id, resource.title)}
                             >
-                              View Resource
-                            </a>
-                          )}
+                              {deletingId === resource.id ? 'Deleting...' : 'Delete'}
+                            </button>
+                          </div>
                         </article>
                       ))}
                     </div>
@@ -352,19 +431,46 @@ function ProfileModal({ user, initialTab = 'profile', onClose, onLogout, onNavig
 
               {activeTab === 'saved' && (
                 <div className="profile-tab-content">
-                  <p className="empty-tab-text">
-                    Bookmark and save unit notes directly from the Resources page for quick pre-exam revision.
-                  </p>
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    onClick={() => {
-                      onClose()
-                      onNavigate('/resources')
-                    }}
-                  >
-                    Browse Resources
-                  </button>
+                  {savedResourcesError ? (
+                    <p className="error-message" role="alert">{savedResourcesError}</p>
+                  ) : savedResources.length === 0 ? (
+                    <>
+                      <p className="empty-tab-text">You haven't saved any study resources yet.</p>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        onClick={() => {
+                          onClose()
+                          onNavigate('/resources')
+                        }}
+                      >
+                        Browse Resources
+                      </button>
+                    </>
+                  ) : (
+                    <div className="profile-shared-resources">
+                      {savedResources.map((resource) => (
+                        <article className="resource-card" key={resource.id} style={{ marginBottom: '1rem' }}>
+                          <div className="card-top-bar"></div>
+                          <h3 className="resource-title">{resource.title}</h3>
+                          <p className="resource-description">
+                            {resource.branch} · Semester {resource.semester} · {resource.subject}
+                          </p>
+                          <p className="resource-description">{resource.unit_label} · {resource.type}</p>
+                          {resource.filename && (
+                            <a className="btn btn-secondary" href={apiUrl(`/download/${resource.filename}`)} download>
+                              Download
+                            </a>
+                          )}
+                          {resource.is_external && (
+                            <a className="btn btn-secondary" href={resource.resource_url} target="_blank" rel="noopener noreferrer">
+                              Open Resource
+                            </a>
+                          )}
+                        </article>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </>

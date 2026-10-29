@@ -28,6 +28,11 @@ function Footer({ onNavigate }) {
                 </a>
               </li>
               <li>
+                <a href="/requests" className="footer-nav-link" onClick={(e) => handleNav(e, '/requests')}>
+                  Requests
+                </a>
+              </li>
+              <li>
                 <a href="/about" className="footer-nav-link" onClick={(e) => handleNav(e, '/about')}>
                   About
                 </a>
