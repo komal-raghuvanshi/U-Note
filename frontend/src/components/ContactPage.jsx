@@ -1,7 +1,12 @@
+
 import { useState } from 'react'
+import { apiFetch } from '../api'
 
 function ContactPage() {
   const [submitted, setSubmitted] = useState(false)
+  const [sending, setSending] = useState(false)
+  const [error, setError] = useState('')
+
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -14,16 +19,38 @@ function ContactPage() {
     setFormData((prev) => ({ ...prev, [name]: value }))
   }
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
-    setSubmitted(true)
+    setError('')
+    setSending(true)
+
+    try {
+      const response = await apiFetch('/contact', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(formData)
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result.message || 'Unable to send message.')
+      }
+
+      setSubmitted(true)
+    } catch (err) {
+      setError(err.message || 'Unable to send your message. Please try again.')
+    } finally {
+      setSending(false)
+    }
   }
 
   return (
     <div className="contact-page-container">
       <div className="section-container">
         <div className="page-header-box text-center">
-          
           <h1 className="page-title">Contact U-NOTE Team</h1>
           <p className="page-subtitle">
             Have suggestions, missing subject requests, or project feedback? Send us a message!
@@ -33,19 +60,25 @@ function ContactPage() {
         <div className="contact-card-wrapper">
           {submitted ? (
             <div className="submission-success-card">
-              <h3>Message prepared</h3>
+              <h3>Message Sent Successfully!</h3>
               <p>
-                Thank you for preparing a message, <strong>{formData.name}</strong>.
+                Thank you for contacting us, <strong>{formData.name}</strong>.
               </p>
               <p className="success-note">
-                This form is not connected to a backend, so your message has not been sent or saved.
+                Your message has been sent to the U-NOTE team. We appreciate your feedback!
               </p>
               <button
                 type="button"
                 className="btn btn-primary"
                 onClick={() => {
                   setSubmitted(false)
-                  setFormData({ name: '', email: '', subject: '', message: '' })
+                  setError('')
+                  setFormData({
+                    name: '',
+                    email: '',
+                    subject: '',
+                    message: ''
+                  })
                 }}
               >
                 Send Another Message
@@ -111,15 +144,24 @@ function ContactPage() {
                 ></textarea>
               </div>
 
+              {error && (
+                <p className="error-message" role="alert">
+                  {error}
+                </p>
+              )}
+
               <div className="form-button-row">
-                <button type="submit" className="btn btn-primary">
-                  Send Message
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  disabled={sending}
+                >
+                  {sending ? 'Sending...' : 'Send Message'}
                 </button>
               </div>
             </form>
           )}
 
-          {/* Quick Info box */}
           <div className="contact-info-footer">
             <div className="info-item">
               <span className="info-title">College Minor Project</span>
