@@ -402,6 +402,92 @@ def get_resource_by_id(resource_id):
     }), 404
 
 
+@resources_bp.route("/resources/<int:resource_id>", methods=["PUT"])
+@require_auth
+def update_resource(resource_id):
+    data = request.get_json(silent=True)
+
+    if not isinstance(data, dict):
+        return jsonify({
+            "success": False,
+            "message": "Invalid request payload."
+        }), 400
+
+    title = data.get("title")
+    description = data.get("description", "")
+    resource_type = data.get("resource_type")
+
+    if not isinstance(title, str) or not title.strip():
+        return jsonify({"success": False, "message": "Title is required."}), 400
+
+    if not isinstance(description, str) or not isinstance(resource_type, str):
+        return jsonify({"success": False, "message": "Invalid resource details."}), 400
+
+    title = title.strip()
+    description = description.strip()
+    resource_type = resource_type.strip()
+
+    if len(title) > 200 or len(resource_type) > 50:
+        return jsonify({"success": False, "message": "Title or resource type is too long."}), 400
+
+    if not resource_type:
+        return jsonify({"success": False, "message": "Resource type is required."}), 400
+
+    connection = None
+    cursor = None
+
+    try:
+        connection = get_db_connection()
+        cursor = connection.cursor(dictionary=True)
+
+        cursor.execute(
+            "SELECT uploaded_by FROM resources WHERE resource_id = %s",
+            (resource_id,)
+        )
+        resource_row = cursor.fetchone()
+
+        if not resource_row:
+            return jsonify({"success": False, "message": "Resource not found."}), 404
+
+        if int(resource_row["uploaded_by"]) != int(g.user_id):
+            return jsonify({
+                "success": False,
+                "message": "You are not authorized to edit this resource."
+            }), 403
+
+        cursor.execute(
+            """
+            UPDATE resources
+            SET title = %s, description = %s, resource_type = %s
+            WHERE resource_id = %s
+            """,
+            (title, description, resource_type, resource_id)
+        )
+
+        connection.commit()
+
+        return jsonify({
+            "success": True,
+            "message": "Resource updated successfully."
+        }), 200
+
+    except Exception:
+        if connection:
+            connection.rollback()
+
+        current_app.logger.exception("Resource update failed")
+
+        return jsonify({
+            "success": False,
+            "message": "Unable to update the resource."
+        }), 500
+
+    finally:
+        if cursor:
+            cursor.close()
+        if connection:
+            connection.close()
+
 @resources_bp.route("/resources/<int:resource_id>", methods=["DELETE"])
 @require_auth
 def delete_resource(resource_id):

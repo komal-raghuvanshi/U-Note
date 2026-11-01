@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
 import { apiFetch, apiUrl } from '../api'
 
-function ResourcesPage({ onSelectResource, onShareClick, initialType = '' }) {
+function ResourcesPage({ onSelectResource, onShareClick, initialType = '', user }) {
   const [resources, setResources] = useState([])
+  const [savedResourceIds, setSavedResourceIds] = useState([])
+  const [savingResourceId, setSavingResourceId] = useState(null)
   const [loading, setLoading] = useState(true)
   const [resourceError, setResourceError] = useState('')
   const [visibleCount, setVisibleCount] = useState(6)
@@ -24,6 +26,71 @@ function ResourcesPage({ onSelectResource, onShareClick, initialType = '' }) {
   const [unitOptions, setUnitOptions] = useState([])
   const [unitsLoading, setUnitsLoading] = useState(false)
   const [branchOptions, setBranchOptions] = useState([])
+
+    // Fetch saved resources for the logged-in user
+  useEffect(() => {
+    let ignore = false
+
+    async function fetchSavedResources() {
+      if (!user?.token) {
+        setSavedResourceIds([])
+        return
+      }
+
+      try {
+        const res = await apiFetch('/resources/saved', {}, user.token)
+        const data = await res.json()
+
+        if (res.ok && !ignore) {
+          const ids = (data.resources || []).map((resource) => resource.id)
+          setSavedResourceIds(ids)
+        }
+      } catch (error) {
+        console.error('Error fetching saved resources:', error)
+      }
+    }
+
+    fetchSavedResources()
+
+    return () => {
+      ignore = true
+    }
+  }, [user?.token])
+
+    const handleSaveResource = async (e, resourceId) => {
+    e.stopPropagation()
+
+    if (!user?.token) {
+      alert('Please login to save resources.')
+      return
+    }
+
+    setSavingResourceId(resourceId)
+
+    const isSaved = savedResourceIds.includes(resourceId)
+
+    try {
+      const res = await apiFetch(`/resources/${resourceId}/saved`, {
+        method: isSaved ? 'DELETE' : 'POST'
+      }, user.token)
+
+      const data = await res.json()
+
+      if (!res.ok) {
+        throw new Error(data.message || 'Unable to update saved resource.')
+      }
+
+      setSavedResourceIds((prev) =>
+        isSaved
+          ? prev.filter((id) => id !== resourceId)
+          : [...prev, resourceId]
+      )
+    } catch (error) {
+      alert(error.message || 'Something went wrong.')
+    } finally {
+      setSavingResourceId(null)
+    }
+  }
 
   useEffect(() => {
     let ignore = false
@@ -442,6 +509,19 @@ function ResourcesPage({ onSelectResource, onShareClick, initialType = '' }) {
                   <p className="resource-description">{resource.type}</p>
 
                   <div style={{ marginTop: '0.85rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      className="btn btn-outline"
+                      disabled={savingResourceId === resource.id}
+                      onClick={(e) => handleSaveResource(e, resource.id)}
+                      style={{ fontSize: '0.82rem', padding: '0.35rem 0.75rem' }}
+                    >
+                      {savingResourceId === resource.id
+                        ? 'Please wait...'
+                        : savedResourceIds.includes(resource.id)
+                          ? '♥ Saved'
+                          : '♡ Save'}
+                    </button>
                     {resource.filename && (
                       <>
                         <a

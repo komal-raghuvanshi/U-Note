@@ -184,6 +184,7 @@ function App() {
           <ResourcesPage
             key={initialCategoryType}
             initialType={initialCategoryType}
+            user={user}
             onSelectResource={(res) => setSelectedResource(res)}
             onShareClick={() => navigate('/share-resource')}
           />

@@ -18,6 +18,13 @@ function ResourceDetailsModal({ resource, onClose, user, onRatingSubmitted }) {
   const [ratingsLoadError, setRatingsLoadError] = useState('')
   const [isSaved, setIsSaved] = useState(false)
   const [savingResource, setSavingResource] = useState(false)
+  const [isEditing, setIsEditing] = useState(false)
+  const [editTitle, setEditTitle] = useState(resource?.title || '')
+  const [editDescription, setEditDescription] = useState(resource?.description || '')
+  const [editResourceType, setEditResourceType] = useState(resource?.resource_type || '')
+
+  const isOwner =
+    user?.id && Number(user.id) === Number(resource?.uploaded_by)
 
   useEffect(() => {
     if (!resource?.id) return
@@ -93,6 +100,34 @@ function ResourceDetailsModal({ resource, onClose, user, onRatingSubmitted }) {
     }
   }
 
+  const handleUpdateResource = async () => {
+    if (!user?.token) return
+
+    try {
+      const response = await apiFetch(`/resources/${resource.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: editTitle.trim(),
+          description: editDescription.trim(),
+          resource_type: editResourceType
+        })
+      }, user.token)
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.message || 'Unable to update resource.')
+      }
+
+      alert('Resource updated successfully!')
+      setIsEditing(false)
+      onClose()
+    } catch (error) {
+      alert(error.message || 'Unable to update resource.')
+    }
+  }
+
   const handleStarSubmit = async (e) => {
     e.preventDefault()
     setRatingError('')
@@ -158,6 +193,57 @@ function ResourceDetailsModal({ resource, onClose, user, onRatingSubmitted }) {
             )}
           </div>
           <h2 className="modal-title">{resource.title}</h2>
+          {isEditing && (
+            <div className="modal-note-box" style={{ marginTop: '1rem' }}>
+              <h3>Edit Resource</h3>
+
+              <label>Title</label>
+              <input
+                className="form-control"
+                value={editTitle}
+                onChange={(e) => setEditTitle(e.target.value)}
+              />
+
+              <label style={{ marginTop: '0.75rem' }}>Description</label>
+              <textarea
+                className="form-control"
+                rows={3}
+                value={editDescription}
+                onChange={(e) => setEditDescription(e.target.value)}
+              />
+
+              <label style={{ marginTop: '0.75rem' }}>Resource Type</label>
+              <select
+                className="form-control"
+                value={editResourceType}
+                onChange={(e) => setEditResourceType(e.target.value)}
+              >
+                <option value="Handwritten Notes">Handwritten Notes</option>
+                <option value="PDF Notes">PDF Notes</option>
+                <option value="Class Notes">Class Notes</option>
+                <option value="Previous Year Papers">Previous Year Papers</option>
+                <option value="Important Questions">Important Questions</option>
+                <option value="Teacher Resources">Teacher Resources</option>
+              </select>
+
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={handleUpdateResource}
+              >
+                Save Changes
+              </button>
+
+              <button
+                type="button"
+                className="btn btn-outline"
+                onClick={() => setIsEditing(false)}
+                style={{ marginTop: '1rem' }}
+              >
+                Cancel
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="modal-body" style={{ maxHeight: 'calc(85vh - 180px)', overflowY: 'auto' }}>
@@ -315,6 +401,15 @@ function ResourceDetailsModal({ resource, onClose, user, onRatingSubmitted }) {
 
         {/* Modal Footer Actions */}
         <div className="modal-footer" style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', alignItems: 'center', flexWrap: 'wrap' }}>
+          {isOwner && (
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => setIsEditing(true)}
+            >
+              Edit Resource
+            </button>
+          )}
           {user && (
             <button type="button" className="btn btn-secondary" onClick={handleToggleSaved} disabled={savingResource}>
               {savingResource ? 'Saving...' : isSaved ? 'Remove Saved' : 'Save Resource'}

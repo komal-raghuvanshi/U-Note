@@ -222,6 +222,10 @@ def get_my_requests():
             req.request_description AS description,
             req.status,
             req.created_at,
+            u.user_id,
+            u.name AS user_name,
+            u.role AS user_role,
+            s.subject_id,
             s.subject_name AS subject,
             s.subject_code,
             sem.semester_name AS semester,
@@ -229,6 +233,7 @@ def get_my_requests():
             un.unit_number AS unit,
             un.unit_name AS unit_name
         FROM requests req
+        JOIN users u ON req.user_id = u.user_id
         JOIN subjects s ON req.subject_id = s.subject_id
         JOIN semesters sem ON s.semester_id = sem.semester_id
         JOIN branches b ON sem.branch_id = b.branch_id
@@ -241,6 +246,8 @@ def get_my_requests():
         for row in rows:
             if row.get("created_at") and hasattr(row["created_at"], "isoformat"):
                 row["created_at"] = row["created_at"].isoformat()
+            if row.get("semester"):
+                row["semester_num"] = _semester_number(row["semester"])
 
         return jsonify({"success": True, "count": len(rows), "requests": rows}), 200
     except Exception:

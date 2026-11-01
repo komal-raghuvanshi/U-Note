@@ -25,23 +25,29 @@ function RequestsPage({ user, onNavigate }) {
   const [subjectOptions, setSubjectOptions] = useState([])
   const [subjectsLoading, setSubjectsLoading] = useState(false)
   const [unitOptions, setUnitOptions] = useState([])
+  const [unitsLoading, setUnitsLoading] = useState(false)
   const [branchOptions, setBranchOptions] = useState([])
   const [submitting, setSubmitting] = useState(false)
 
+  // Fetch branches for dropdowns
   useEffect(() => {
     let ignore = false
     apiFetch('/branches')
       .then(async (response) => {
         const data = await response.json()
         if (response.ok && !ignore) {
-          setBranchOptions(Array.isArray(data.branches) ? data.branches : [])
+          const list = Array.isArray(data.branches) ? data.branches : []
+          setBranchOptions(list)
+          if (list.length > 0 && !formData.branch) {
+            setFormData((prev) => ({ ...prev, branch: list[0].name }))
+          }
         }
       })
       .catch(() => {
         if (!ignore) setBranchOptions([])
       })
     return () => { ignore = true }
-  }, [])
+  }, [formData.branch])
 
   // Fetch community requests
   const fetchRequests = useCallback(async () => {
@@ -82,22 +88,27 @@ function RequestsPage({ user, onNavigate }) {
     }
   }, [user])
 
+  // Initial fetch for browse requests
   useEffect(() => {
     fetchRequests()
   }, [fetchRequests])
 
+  // Initial fetch for my requests when user is logged in
   useEffect(() => {
-    if (activeTab === 'my') {
+    if (user?.token) {
       fetchMyRequests()
+    } else {
+      setMyRequests([])
     }
-  }, [activeTab, fetchMyRequests])
+  }, [user, fetchMyRequests])
 
-  // Fetch dynamic subjects when form branch/semester change
+  // Fetch dynamic subjects when form branch or semester changes
   useEffect(() => {
     let ignore = false
     async function loadSubjects() {
       if (!formData.branch || !formData.semester) {
         setSubjectOptions([])
+        setSubjectsLoading(false)
         return
       }
       setSubjectsLoading(true)
@@ -111,12 +122,17 @@ function RequestsPage({ user, onNavigate }) {
         if (!ignore) {
           const list = Array.isArray(data) ? data : []
           setSubjectOptions(list)
-          if (list.length > 0 && !formData.subject) {
-            setFormData((prev) => ({ ...prev, subject: list[0].name }))
-          }
+          // Keep current subject if it exists in the fetched list; otherwise reset
+          setFormData((prev) => {
+            const exists = list.some((s) => s.name === prev.subject)
+            return exists ? prev : { ...prev, subject: '', unit: 'all' }
+          })
         }
       } catch {
-        if (!ignore) setSubjectOptions([])
+        if (!ignore) {
+          setSubjectOptions([])
+          setFormData((prev) => ({ ...prev, subject: '', unit: 'all' }))
+        }
       } finally {
         if (!ignore) setSubjectsLoading(false)
       }
@@ -124,16 +140,18 @@ function RequestsPage({ user, onNavigate }) {
 
     loadSubjects()
     return () => { ignore = true }
-  }, [formData.branch, formData.semester, formData.subject])
+  }, [formData.branch, formData.semester])
 
-  // Fetch units when subject changes in form
+  // Fetch units when form subject, branch, or semester changes
   useEffect(() => {
     let ignore = false
     async function loadUnits() {
       if (!formData.subject) {
         setUnitOptions([])
+        setUnitsLoading(false)
         return
       }
+      setUnitsLoading(true)
       try {
         const params = new URLSearchParams({
           subject: formData.subject,
@@ -147,6 +165,8 @@ function RequestsPage({ user, onNavigate }) {
         }
       } catch {
         if (!ignore) setUnitOptions([])
+      } finally {
+        if (!ignore) setUnitsLoading(false)
       }
     }
 
@@ -167,13 +187,29 @@ function RequestsPage({ user, onNavigate }) {
     }))
   }
 
+  const handleTabChange = (tab) => {
+    setActiveTab(tab)
+    setError('')
+    setSuccessMsg('')
+    if (tab === 'my' && user?.token) {
+      fetchMyRequests()
+    } else if (tab === 'browse') {
+      fetchRequests()
+    }
+  }
+
   const handleSubmitRequest = async (e) => {
     e.preventDefault()
     setError('')
     setSuccessMsg('')
 
-    if (!user?.id) {
+    if (!user?.id || !user?.token) {
       setError('Please log in to submit a resource request.')
+      return
+    }
+
+    if (!formData.branch || !formData.semester || !formData.subject) {
+      setError('Please select a branch, semester, and subject.')
       return
     }
 
@@ -184,23 +220,30 @@ function RequestsPage({ user, onNavigate }) {
 
     setSubmitting(true)
     try {
-      const res = await apiFetch('/requests', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          branch: formData.branch,
-          semester: formData.semester,
-          subject: formData.subject,
-          unit: formData.unit,
-          description: formData.description.trim()
-        }, user.token)
-      })
+      const res = await apiFetch(
+        '/requests',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            branch: formData.branch,
+            semester: formData.semester,
+            subject: formData.subject,
+            unit: formData.unit,
+            description: formData.description.trim()
+          })
+        },
+        user.token
+      )
 
       const data = await res.json()
       if (res.ok && data.success) {
         setSuccessMsg('Your request has been submitted to the community!')
         setFormData((prev) => ({ ...prev, description: '' }))
         fetchRequests()
+        if (user?.token) {
+          fetchMyRequests()
+        }
         setTimeout(() => {
           setActiveTab('browse')
           setSuccessMsg('')
@@ -216,18 +259,26 @@ function RequestsPage({ user, onNavigate }) {
   }
 
   const handleUpdateStatus = async (requestId, newStatus) => {
+    if (!user?.token) {
+      setError('Authentication required to update request status.')
+      return
+    }
     try {
-      const res = await apiFetch(`/requests/${requestId}/status`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          status: newStatus
-        })
-      }, user?.token)
+      const res = await apiFetch(
+        `/requests/${requestId}/status`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            status: newStatus
+          })
+        },
+        user.token
+      )
       const data = await res.json()
       if (res.ok && data.success) {
         fetchRequests()
-        if (activeTab === 'my') fetchMyRequests()
+        if (user?.token) fetchMyRequests()
       } else {
         setError(data.message || 'Unable to update request status.')
       }
@@ -236,8 +287,26 @@ function RequestsPage({ user, onNavigate }) {
     }
   }
 
-  // Filter client side by search term
+  const handleResetFilters = () => {
+    setSearchFilter('')
+    setBranchFilter('')
+    setStatusFilter('all')
+  }
+
+  const hasActiveFilters = Boolean(
+    searchFilter || branchFilter || (statusFilter && statusFilter !== 'all')
+  )
+
+  // Filter client side for tab-specific items and search
   const displayedRequests = (activeTab === 'my' ? myRequests : requests).filter((req) => {
+    if (activeTab === 'my') {
+      if (branchFilter && req.branch && req.branch.toLowerCase() !== branchFilter.toLowerCase()) {
+        return false
+      }
+      if (statusFilter && statusFilter !== 'all' && req.status && req.status.toLowerCase() !== statusFilter.toLowerCase()) {
+        return false
+      }
+    }
     if (!searchFilter) return true
     const term = searchFilter.toLowerCase()
     return (
@@ -264,7 +333,7 @@ function RequestsPage({ user, onNavigate }) {
             <button
               type="button"
               className={`btn requests-tab-btn ${activeTab === 'browse' ? 'active' : 'btn-secondary'}`}
-              onClick={() => setActiveTab('browse')}
+              onClick={() => handleTabChange('browse')}
               aria-pressed={activeTab === 'browse'}
             >
               Browse All Requests ({requests.length})
@@ -272,7 +341,7 @@ function RequestsPage({ user, onNavigate }) {
             <button
               type="button"
               className={`btn requests-tab-btn ${activeTab === 'create' ? 'active' : 'btn-secondary'}`}
-              onClick={() => setActiveTab('create')}
+              onClick={() => handleTabChange('create')}
               aria-pressed={activeTab === 'create'}
             >
               + Request Notes / Material
@@ -281,7 +350,7 @@ function RequestsPage({ user, onNavigate }) {
               <button
                 type="button"
                 className={`btn requests-tab-btn ${activeTab === 'my' ? 'active' : 'btn-secondary'}`}
-                onClick={() => setActiveTab('my')}
+                onClick={() => handleTabChange('my')}
                 aria-pressed={activeTab === 'my'}
               >
                 My Requests ({myRequests.length})
@@ -290,294 +359,375 @@ function RequestsPage({ user, onNavigate }) {
           </div>
         </header>
 
-      <div className="requests-page-body">
-        {error && (
-          <div className="auth-error-banner" style={{ marginBottom: '1.5rem' }}>
-            {error}
-          </div>
-        )}
+        <div className="requests-page-body">
+          {error && (
+            <div className="auth-error-banner" style={{ marginBottom: '1.5rem' }}>
+              {error}
+            </div>
+          )}
 
-        {successMsg && (
-          <div className="prototype-badge-box" style={{ marginBottom: '1.5rem' }}>
-            <span className="prototype-badge-pill" style={{ backgroundColor: '#15803d' }}>Success</span>
-            <p className="prototype-badge-text">{successMsg}</p>
-          </div>
-        )}
+          {successMsg && (
+            <div className="prototype-badge-box" style={{ marginBottom: '1.5rem' }}>
+              <span className="prototype-badge-pill" style={{ backgroundColor: '#15803d' }}>Success</span>
+              <p className="prototype-badge-text">{successMsg}</p>
+            </div>
+          )}
 
-        {/* Tab 1: Create Request */}
-        {activeTab === 'create' && (
-          <div className="share-form-wrapper request-form-wrapper">
-            <h2 className="share-form-title" style={{ fontSize: '1.5rem', marginBottom: '0.5rem' }}>
-              Submit a Resource Request
-            </h2>
-            <p className="share-form-subtitle" style={{ marginBottom: '1.5rem' }}>
-              Fill in the academic details so teachers or students can share the exact material you need.
-            </p>
+          {/* Tab 1: Create Request */}
+          {activeTab === 'create' && (
+            <div className="share-form-wrapper request-form-wrapper">
+              <h2 className="share-form-title" style={{ fontSize: '1.5rem', marginBottom: '0.5rem' }}>
+                Submit a Resource Request
+              </h2>
+              <p className="share-form-subtitle" style={{ marginBottom: '1.5rem' }}>
+                Fill in the academic details so teachers or students can share the exact material you need.
+              </p>
 
-            {!user ? (
-              <div className="prototype-badge-box" style={{ backgroundColor: '#eff6ff', borderColor: '#bfdbfe' }}>
-                <span className="prototype-badge-pill" style={{ backgroundColor: '#1d4ed8' }}>Login Needed</span>
-                <p className="prototype-badge-text" style={{ color: '#1e40af' }}>
-                  Please <button type="button" onClick={() => onNavigate('/login')} style={{ background: 'none', border: 'none', color: '#1d4ed8', fontWeight: 700, cursor: 'pointer', textDecoration: 'underline' }}>log in</button> or <button type="button" onClick={() => onNavigate('/signup')} style={{ background: 'none', border: 'none', color: '#1d4ed8', fontWeight: 700, cursor: 'pointer', textDecoration: 'underline' }}>sign up</button> to request study material.
-                </p>
-              </div>
-            ) : (
-              <form onSubmit={handleSubmitRequest} className="share-resource-form">
-                <div className="form-row">
-                  <div className="form-group">
-                    <label htmlFor="req-branch">Branch *</label>
-                    <select
-                      id="req-branch"
-                      name="branch"
-                      className="form-control"
-                      value={formData.branch}
-                      onChange={handleFormChange}
-                      required
+              {!user ? (
+                <div className="prototype-badge-box" style={{ backgroundColor: '#eff6ff', borderColor: '#bfdbfe' }}>
+                  <span className="prototype-badge-pill" style={{ backgroundColor: '#1d4ed8' }}>Login Needed</span>
+                  <p className="prototype-badge-text" style={{ color: '#1e40af' }}>
+                    Please{' '}
+                    <button
+                      type="button"
+                      onClick={() => onNavigate('/login')}
+                      style={{ background: 'none', border: 'none', color: '#1d4ed8', fontWeight: 700, cursor: 'pointer', textDecoration: 'underline' }}
                     >
-                      {branchOptions.map((branch) => (
-                        <option key={branch.id} value={branch.name}>{branch.name}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="form-group">
-                    <label htmlFor="req-sem">Semester *</label>
-                    <select
-                      id="req-sem"
-                      name="semester"
-                      className="form-control"
-                      value={formData.semester}
-                      onChange={handleFormChange}
-                      required
+                      log in
+                    </button>{' '}
+                    or{' '}
+                    <button
+                      type="button"
+                      onClick={() => onNavigate('/signup')}
+                      style={{ background: 'none', border: 'none', color: '#1d4ed8', fontWeight: 700, cursor: 'pointer', textDecoration: 'underline' }}
                     >
-                      {[1, 2, 3, 4, 5, 6, 7, 8].map((s) => (
-                        <option key={s} value={s}>Semester {s}</option>
-                      ))}
-                    </select>
-                  </div>
+                      sign up
+                    </button>{' '}
+                    to request study material.
+                  </p>
                 </div>
+              ) : (
+                <form onSubmit={handleSubmitRequest} className="share-resource-form">
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label htmlFor="req-branch">Branch *</label>
+                      <select
+                        id="req-branch"
+                        name="branch"
+                        className="form-control"
+                        value={formData.branch}
+                        onChange={handleFormChange}
+                        required
+                      >
+                        <option value="" disabled>Select Branch</option>
+                        {branchOptions.length > 0 ? (
+                          branchOptions.map((branch) => (
+                            <option key={branch.id} value={branch.name}>{branch.name}</option>
+                          ))
+                        ) : (
+                          <>
+                            <option value="AIML">AIML</option>
+                            <option value="CSE">CSE</option>
+                            <option value="IT">IT</option>
+                            <option value="EC">EC</option>
+                            <option value="ME">ME</option>
+                            <option value="Civil">Civil</option>
+                          </>
+                        )}
+                      </select>
+                    </div>
 
-                <div className="form-row">
-                  <div className="form-group">
-                    <label htmlFor="req-subject">Subject *</label>
-                    <select
-                      id="req-subject"
-                      name="subject"
-                      className="form-control"
-                      value={formData.subject}
-                      onChange={handleFormChange}
-                      required
-                      disabled={subjectsLoading}
-                    >
-                      {subjectsLoading ? (
-                        <option>Loading subjects...</option>
-                      ) : subjectOptions.length === 0 ? (
-                        <option value="">No subjects found for selection</option>
-                      ) : (
-                        subjectOptions.map((subj) => (
+                    <div className="form-group">
+                      <label htmlFor="req-sem">Semester *</label>
+                      <select
+                        id="req-sem"
+                        name="semester"
+                        className="form-control"
+                        value={formData.semester}
+                        onChange={handleFormChange}
+                        required
+                      >
+                        {[1, 2, 3, 4, 5, 6, 7, 8].map((s) => (
+                          <option key={s} value={s}>Semester {s}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label htmlFor="req-subject">Subject *</label>
+                      <select
+                        id="req-subject"
+                        name="subject"
+                        className="form-control"
+                        value={formData.subject}
+                        onChange={handleFormChange}
+                        required
+                        disabled={subjectsLoading || subjectOptions.length === 0}
+                      >
+                        <option value="">
+                          {subjectsLoading
+                            ? 'Loading subjects...'
+                            : subjectOptions.length === 0
+                              ? (formData.branch && formData.semester ? 'No subjects found' : 'Select branch & semester first')
+                              : 'Select Subject'}
+                        </option>
+                        {subjectOptions.map((subj) => (
                           <option key={subj.id || subj.code} value={subj.name}>
                             {subj.code ? `${subj.code} - ` : ''}{subj.name}
                           </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="form-group">
+                      <label htmlFor="req-unit">Unit Scope</label>
+                      <select
+                        id="req-unit"
+                        name="unit"
+                        className="form-control"
+                        value={formData.unit}
+                        onChange={handleFormChange}
+                        disabled={unitsLoading || !formData.subject}
+                      >
+                        <option value="all">
+                          {unitsLoading ? 'Loading units...' : 'All Units (Complete Subject Material)'}
+                        </option>
+                        {unitOptions.map((u) => (
+                          <option key={u.id || u.unit_id || u.unit_number} value={u.unit_number}>
+                            Unit {u.unit_number}{u.name ? `: ${u.name}` : u.unit_name ? `: ${u.unit_name}` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="form-group">
+                    <label htmlFor="req-desc">What study material are you looking for? *</label>
+                    <textarea
+                      id="req-desc"
+                      name="description"
+                      className="form-control"
+                      rows={4}
+                      placeholder="e.g. Need handwritten notes with solved numericals for Unit 3 (Dynamic Programming), or 2024 previous year question solutions."
+                      value={formData.description}
+                      onChange={handleFormChange}
+                      required
+                    />
+                  </div>
+
+                  <div className="form-button-row">
+                    <button type="submit" className="btn btn-primary" disabled={submitting}>
+                      {submitting ? 'Submitting...' : 'Post Request'}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() => handleTabChange('browse')}
+                      disabled={submitting}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
+          )}
+
+          {/* Tab 2 & 3: Browse All or My Requests */}
+          {activeTab !== 'create' && (
+            <>
+              {/* Filter controls */}
+              <div className="filters-card requests-filter-card">
+                <div className="filters-grid requests-filter-grid">
+                  <div className="filter-item">
+                    <label htmlFor="filter-search">Search Requests</label>
+                    <input
+                      type="text"
+                      id="filter-search"
+                      className="form-control"
+                      placeholder="Filter by subject or keyword..."
+                      value={searchFilter}
+                      onChange={(e) => setSearchFilter(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="filter-item">
+                    <label htmlFor="filter-branch">Branch</label>
+                    <select
+                      id="filter-branch"
+                      className="form-control"
+                      value={branchFilter}
+                      onChange={(e) => setBranchFilter(e.target.value)}
+                    >
+                      <option value="">All Branches</option>
+                      {branchOptions.length > 0 ? (
+                        branchOptions.map((branch) => (
+                          <option key={branch.id} value={branch.name}>{branch.name}</option>
                         ))
+                      ) : (
+                        <>
+                          <option value="AIML">AIML</option>
+                          <option value="CSE">CSE</option>
+                          <option value="IT">IT</option>
+                          <option value="EC">EC</option>
+                          <option value="ME">ME</option>
+                          <option value="Civil">Civil</option>
+                        </>
                       )}
                     </select>
                   </div>
 
-                  <div className="form-group">
-                    <label htmlFor="req-unit">Unit</label>
+                  <div className="filter-item">
+                    <label htmlFor="filter-status">Status</label>
                     <select
-                      id="req-unit"
-                      name="unit"
+                      id="filter-status"
                       className="form-control"
-                      value={formData.unit}
-                      onChange={handleFormChange}
+                      value={statusFilter}
+                      onChange={(e) => setStatusFilter(e.target.value)}
                     >
-                      <option value="all">All Units / Whole Syllabus</option>
-                      {unitOptions.map((u) => (
-                        <option key={u.unit_id || u.unit_number} value={u.unit_number}>
-                          Unit {u.unit_number}: {u.unit_name}
-                        </option>
-                      ))}
+                      <option value="all">All Statuses</option>
+                      <option value="Pending">Pending (Unfulfilled)</option>
+                      <option value="Fulfilled">Fulfilled</option>
+                      <option value="Rejected">Rejected</option>
                     </select>
                   </div>
                 </div>
-
-                <div className="form-group">
-                  <label htmlFor="req-desc">What study material are you looking for? *</label>
-                  <textarea
-                    id="req-desc"
-                    name="description"
-                    className="form-control"
-                    rows={4}
-                    placeholder="e.g. Need handwritten notes with solved numericals for Unit 3 (Dynamic Programming), or 2024 previous year question solutions."
-                    value={formData.description}
-                    onChange={handleFormChange}
-                    required
-                  />
-                </div>
-
-                <div className="form-button-row">
-                  <button type="submit" className="btn btn-primary" disabled={submitting}>
-                    {submitting ? 'Submitting...' : 'Post Request'}
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    onClick={() => setActiveTab('browse')}
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </form>
-            )}
-          </div>
-        )}
-
-        {/* Tab 2 & 3: Browse All or My Requests */}
-        {activeTab !== 'create' && (
-          <>
-            {/* Filter controls */}
-            <div className="filters-card requests-filter-card">
-              <div className="filters-grid requests-filter-grid">
-                <div className="filter-item">
-                  <label htmlFor="filter-search">Search Requests</label>
-                  <input
-                    type="text"
-                    id="filter-search"
-                    className="form-control"
-                    placeholder="Filter by subject or keyword..."
-                    value={searchFilter}
-                    onChange={(e) => setSearchFilter(e.target.value)}
-                  />
-                </div>
-
-                <div className="filter-item">
-                  <label htmlFor="filter-branch">Branch</label>
-                  <select
-                    id="filter-branch"
-                    className="form-control"
-                    value={branchFilter}
-                    onChange={(e) => setBranchFilter(e.target.value)}
-                  >
-                    <option value="">All Branches</option>
-                    {branchOptions.map((branch) => (
-                      <option key={branch.id} value={branch.name}>{branch.name}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="filter-item">
-                  <label htmlFor="filter-status">Status</label>
-                  <select
-                    id="filter-status"
-                    className="form-control"
-                    value={statusFilter}
-                    onChange={(e) => setStatusFilter(e.target.value)}
-                  >
-                    <option value="all">All Statuses</option>
-                    <option value="Pending">Pending (Unfulfilled)</option>
-                    <option value="Fulfilled">Fulfilled</option>
-                  </select>
-                </div>
               </div>
-            </div>
 
-            {/* List */}
-            {loading ? (
-              <div className="resources-loading-box">
-                <p>Loading study requests...</p>
-              </div>
-            ) : displayedRequests.length === 0 ? (
-              <div className="no-results-box">
-                <h3>No requests found</h3>
-                <p>
-                  {activeTab === 'my'
-                    ? "You haven't submitted any study material requests yet."
-                    : 'No requests matched your filter. You can submit a request if you need materials.'}
-                </p>
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  onClick={() => setActiveTab('create')}
-                >
-                  + Request Notes
-                </button>
-              </div>
-            ) : (
-              <div className="requests-grid">
-                {displayedRequests.map((req) => {
-                  const isFulfilled = req.status === 'Fulfilled'
-                  const canManage = user?.role === 'teacher' || (user?.id && user.id === req.user_id)
-                  return (
-                    <div key={req.id} className="request-card">
-                      <div className="request-card-header">
-                        <div className="request-tags">
-                          <span className="request-branch-badge">
-                            {req.branch} · {req.semester}
-                          </span>
-                          <span className={`request-status-badge ${isFulfilled ? 'status-fulfilled' : 'status-pending'}`}>
-                            {req.status}
+              {/* List */}
+              {loading ? (
+                <div className="resources-loading-box">
+                  <p>Loading study requests...</p>
+                </div>
+              ) : displayedRequests.length === 0 ? (
+                <div className="no-results-box">
+                  <h3>No requests found</h3>
+                  <p>
+                    {hasActiveFilters
+                      ? 'No study requests matched your selected filters.'
+                      : activeTab === 'my'
+                        ? "You haven't submitted any study material requests yet."
+                        : 'No requests available yet. You can submit a request if you need materials.'}
+                  </p>
+                  <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center', marginTop: '1rem', flexWrap: 'wrap' }}>
+                    {hasActiveFilters && (
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        onClick={handleResetFilters}
+                      >
+                        Reset Filters
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      onClick={() => handleTabChange('create')}
+                    >
+                      + Request Notes
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="requests-grid">
+                  {displayedRequests.map((req) => {
+                    const isFulfilled = req.status === 'Fulfilled'
+                    const isRejected = req.status === 'Rejected'
+                    const isOwner = Boolean(user?.id && String(user.id) === String(req.user_id))
+                    const isTeacher = user?.role === 'teacher'
+                    const canManage = Boolean(user?.id)
+
+                    const statusClass =
+                      isFulfilled
+                        ? 'status-fulfilled'
+                        : isRejected
+                          ? 'status-rejected'
+                          : 'status-pending'
+
+                    return (
+                      <div key={req.id} className="request-card">
+                        <div className="request-card-header">
+                          <div className="request-tags">
+                            <span className="request-branch-badge">
+                              {req.branch} · {req.semester}
+                            </span>
+                            <span className={`request-status-badge ${statusClass}`}>
+                              {req.status}
+                            </span>
+                          </div>
+                          <span className="request-date">
+                            {req.created_at ? new Date(req.created_at).toLocaleDateString() : ''}
                           </span>
                         </div>
-                        <span className="request-date">
-                          {req.created_at ? new Date(req.created_at).toLocaleDateString() : ''}
-                        </span>
-                      </div>
 
-                      <h3 className="request-subject-title">
-                        {req.subject_code ? `${req.subject_code} - ` : ''}{req.subject}
-                      </h3>
+                        <h3 className="request-subject-title">
+                          {req.subject_code ? `${req.subject_code} - ` : ''}{req.subject}
+                        </h3>
 
-                      <p className="request-unit-tag">
-                        Scope: <strong>{req.unit ? `Unit ${req.unit}${req.unit_name ? `: ${req.unit_name}` : ''}` : 'All Units'}</strong>
-                      </p>
+                        <p className="request-unit-tag">
+                          Scope: <strong>{req.unit ? `Unit ${req.unit}${req.unit_name ? `: ${req.unit_name}` : ''}` : 'All Units'}</strong>
+                        </p>
 
-                      <div className="request-description-box">
-                        <p>{req.description}</p>
-                      </div>
+                        <div className="request-description-box">
+                          <p>{req.description}</p>
+                        </div>
 
-                      <div className="request-footer">
-                        <div className="request-user-info">
-                          <span className="request-avatar-circle">
-                            {(req.user_name || 'U').charAt(0).toUpperCase()}
-                          </span>
-                          <div>
-                            <p className="request-user-name">{req.user_name || 'Student'}</p>
-                            <span className="request-user-role">{req.user_role === 'teacher' ? 'Faculty Member' : 'Student'}</span>
+                        <div className="request-footer">
+                          <div className="request-user-info">
+                            <span className="request-avatar-circle">
+                              {(req.user_name || 'U').charAt(0).toUpperCase()}
+                            </span>
+                            <div>
+                              <p className="request-user-name">{req.user_name || 'Student'}</p>
+                              <span className="request-user-role">{req.user_role === 'teacher' ? 'Faculty Member' : 'Student'}</span>
+                            </div>
+                          </div>
+
+                          <div className="request-actions">
+                            {!isFulfilled && !isRejected && (
+                              <button
+                                type="button"
+                                className="btn btn-secondary btn-sm"
+                                onClick={() => onNavigate('/share-resource')}
+                                title="Upload and share the notes requested here"
+                              >
+                                Share Notes &rarr;
+                              </button>
+                            )}
+
+                            {canManage && !isFulfilled && !isRejected && (
+                              <button
+                                type="button"
+                                className="btn btn-outline btn-sm"
+                                onClick={() => handleUpdateStatus(req.id, 'Fulfilled')}
+                                title="Mark this request as fulfilled"
+                              >
+                                Mark Fulfilled ✓
+                              </button>
+                            )}
+
+                            {isTeacher && req.status === 'Pending' && (
+                              <button
+                                type="button"
+                                className="btn btn-outline btn-sm btn-danger"
+                                onClick={() => handleUpdateStatus(req.id, 'Rejected')}
+                                title="Reject invalid or duplicate request"
+                              >
+                                Reject ✕
+                              </button>
+                            )}
                           </div>
                         </div>
-
-                        <div className="request-actions">
-                          {!isFulfilled && (
-                            <button
-                              type="button"
-                              className="btn btn-secondary btn-sm"
-                              onClick={() => onNavigate('/share-resource')}
-                              title="Upload and share the notes requested here"
-                            >
-                              Share Notes &rarr;
-                            </button>
-                          )}
-
-                          {canManage && !isFulfilled && (
-                            <button
-                              type="button"
-                              className="btn btn-outline btn-sm"
-                              onClick={() => handleUpdateStatus(req.id, 'Fulfilled')}
-                            >
-                              Mark Fulfilled ✓
-                            </button>
-                          )}
-                        </div>
                       </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </>
-        )}
-      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </>
+          )}
+        </div>
       </div>
     </div>
   )
