@@ -1,3 +1,4 @@
+
 import os
 
 import mysql.connector
@@ -13,4 +14,6 @@ def get_db_connection():
         user=os.getenv("UNOTE_DB_USER", "root"),
         password=os.getenv("UNOTE_DB_PASSWORD", ""),
         database=os.getenv("UNOTE_DB_NAME", "u_note"),
+        ssl_ca=os.getenv("UNOTE_DB_SSL_CA"),
+        ssl_verify_cert=True,
     )
