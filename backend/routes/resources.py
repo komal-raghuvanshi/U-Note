@@ -115,13 +115,9 @@ def _fetch_all_resources(owner_id=None):
             elif url and secure_filename(url) == url:
                 filename = url
 
-            # Verify that the referenced file physically exists in the uploads directory
-            if not is_external:
-                if not filename:
-                    continue
-                file_path = os.path.join(UPLOAD_FOLDER, filename)
-                if not (os.path.isfile(file_path) and os.path.getsize(file_path) > 0):
-                    continue
+           # Keep database records even if the uploaded file is missing
+            if not is_external and not filename:
+                continue
 
             sem_val = None
             if row["semester"]:
