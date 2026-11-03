@@ -15,10 +15,13 @@ resources_bp = Blueprint("resources", __name__)
 ALLOWED_EXTENSIONS = {"pdf", "png", "jpg", "jpeg"}
 MAX_FILE_SIZE = 25 * 1024 * 1024  # 25 MB
 
-UPLOAD_FOLDER = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "uploads"
-)
+if os.environ.get("VERCEL"):
+    UPLOAD_FOLDER = "/tmp/unote_uploads"
+else:
+    UPLOAD_FOLDER = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "uploads"
+    )
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
