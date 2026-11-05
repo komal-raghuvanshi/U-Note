@@ -2,17 +2,19 @@ const teamMembers = [
   {
     name: 'Komal Raghuvanshi',
     role: '3rd Year | B.Tech AI & ML | Frontend & Backend Developer',
+    photoUrl: '/team/Komal_Raghuvanshi_passport.jpeg',
     linkedinUrl: 'https://www.linkedin.com/in/komalraghuvanshi16',
     githubUrl: 'https://github.com/komal-raghuvanshi',
   },
-  { name: 'Khushi Kushwah', role: '3rd Year | B.Tech AI & ML | Database Developer', linkedinUrl: '', githubUrl: '' },
+  { name: 'Khushi Kushwah', role: '3rd Year | B.Tech AI & ML | Database Developer', photoUrl: '', linkedinUrl: '', githubUrl: '' },
   {
     name: 'Sakshi Yadav',
     role: '3rd Year | B.Tech AI & ML | Database Documentation',
+    photoUrl: '/team/sakshi_yadav.jpeg',
     linkedinUrl: 'https://www.linkedin.com/in/sakshi-yadav-86b500331?utm_source=share_via&utm_content=profile&utm_medium=member_android',
     githubUrl: 'https://github.com/sakshiyadav18-bot',
   },
-  { name: 'Vishakha Solanki', role: '3rd Year | B.Tech AI & ML | Backend Developer', linkedinUrl: '', githubUrl: '' },
+  { name: 'Vishakha Solanki', role: '3rd Year | B.Tech AI & ML | Backend Developer', photoUrl: '', linkedinUrl: 'https://www.linkedin.com/in/vishakha-solanki-1775a832a?utm_source=share_via&utm_content=profile&utm_medium=member_android', githubUrl: 'https://github.com/solankivishakha1808-ux' },
 ]
 
 const offerings = [
@@ -160,6 +162,16 @@ function AboutPage({ onNavigate }) {
           <div className="about-team-grid">
             {teamMembers.map((member) => (
               <article className="about-team-card" key={member.name}>
+                <div className="about-team-photo">
+                  {member.photoUrl ? (
+                    <img src={member.photoUrl} alt={`${member.name}`} />
+                  ) : (
+                    member.name
+                      .split(' ')
+                      .map((part) => part[0])
+                      .join('')
+                  )}
+                </div>
                 <h3>{member.name}</h3>
                 <p className="about-team-role">{member.role}</p>
                 <div className="about-team-socials">

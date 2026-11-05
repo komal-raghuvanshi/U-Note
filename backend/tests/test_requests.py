@@ -61,7 +61,7 @@ class RequestRouteTests(unittest.TestCase):
             call for call in cursor.execute.call_args_list
             if "INSERT INTO requests" in call.args[0]
         )
-        self.assertEqual(insert_call.args[1], (7, 10, None, "Need notes"))
+        self.assertEqual(insert_call.args[1], (7, 10, None, "Machine Learning", "Need notes"))
         connection.commit.assert_called_once()
 
     def test_request_can_target_an_eighth_unit(self):
@@ -93,7 +93,10 @@ class RequestRouteTests(unittest.TestCase):
             call for call in cursor.execute.call_args_list
             if "INSERT INTO requests" in call.args[0]
         )
-        self.assertEqual(insert_call.args[1], (7, 10, 88, "Need Unit 8 notes"))
+        self.assertEqual(
+            insert_call.args[1],
+            (7, 10, 88, "Machine Learning", "Need Unit 8 notes")
+        )
         connection.commit.assert_called_once()
 
     def test_student_cannot_update_another_users_request(self):
@@ -334,6 +337,255 @@ class RequestRouteTests(unittest.TestCase):
         self.assertEqual(response.status_code, 409)
         self.assertEqual(cursor.execute.call_count, 1)
         connection.commit.assert_not_called()
+
+    def test_owner_can_edit_pending_request_and_academic_scope(self):
+        cursor = MagicMock()
+        cursor.rowcount = 1
+        cursor.fetchone.side_effect = [
+            {"request_id": 12, "user_id": 7, "status": "Pending"},
+            {"subject_id": 11, "subject_name": "Database Management Systems"},
+            {"unit_id": 88},
+        ]
+        connection = MagicMock()
+        connection.cursor.return_value = cursor
+
+        with patch.object(requests_routes, "get_db_connection", return_value=connection):
+            response = self.client.patch(
+                "/requests/12",
+                json={
+                    "title": "DBMS Unit 8 notes",
+                    "description": "Please share worked examples.",
+                    "branch": "AIML",
+                    "semester": 5,
+                    "subject": "Database Management Systems",
+                    "unit": "8",
+                },
+                headers=self.auth_headers(7),
+            )
+
+        self.assertEqual(response.status_code, 200)
+        update_call = next(
+            call for call in cursor.execute.call_args_list
+            if "UPDATE requests" in call.args[0]
+        )
+        self.assertEqual(
+            update_call.args[1],
+            ("DBMS Unit 8 notes", "Please share worked examples.", 11, 88, 12, 7)
+        )
+        connection.commit.assert_called_once()
+
+    def test_user_cannot_edit_another_users_request(self):
+        cursor = MagicMock()
+        cursor.fetchone.return_value = {
+            "request_id": 12,
+            "user_id": 7,
+            "status": "Pending",
+        }
+        connection = MagicMock()
+        connection.cursor.return_value = cursor
+
+        with patch.object(requests_routes, "get_db_connection", return_value=connection):
+            response = self.client.patch(
+                "/requests/12",
+                json={
+                    "title": "Edited",
+                    "description": "Edited",
+                    "branch": "AIML",
+                    "semester": 4,
+                    "subject": "Machine Learning",
+                    "unit": "all",
+                },
+                headers=self.auth_headers(99),
+            )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(cursor.execute.call_count, 1)
+        connection.commit.assert_not_called()
+
+    def test_fulfilled_request_cannot_be_edited(self):
+        cursor = MagicMock()
+        cursor.fetchone.return_value = {
+            "request_id": 12,
+            "user_id": 7,
+            "status": "Fulfilled",
+        }
+        connection = MagicMock()
+        connection.cursor.return_value = cursor
+
+        with patch.object(requests_routes, "get_db_connection", return_value=connection):
+            response = self.client.patch(
+                "/requests/12",
+                json={
+                    "title": "Edited",
+                    "description": "Edited",
+                    "branch": "AIML",
+                    "semester": 4,
+                    "subject": "Machine Learning",
+                    "unit": "all",
+                },
+                headers=self.auth_headers(7),
+            )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(cursor.execute.call_count, 1)
+        connection.commit.assert_not_called()
+
+    def test_permanently_deleted_request_cannot_be_edited(self):
+        cursor = MagicMock()
+        cursor.fetchone.return_value = None
+        connection = MagicMock()
+        connection.cursor.return_value = cursor
+
+        with patch.object(requests_routes, "get_db_connection", return_value=connection):
+            response = self.client.patch(
+                "/requests/12",
+                json={
+                    "title": "Edited",
+                    "description": "Edited",
+                    "branch": "AIML",
+                    "semester": 4,
+                    "subject": "Machine Learning",
+                    "unit": "all",
+                },
+                headers=self.auth_headers(7),
+            )
+
+        self.assertEqual(response.status_code, 404)
+        connection.commit.assert_not_called()
+
+    def test_edit_requires_an_explicit_unit_selection(self):
+        with patch.object(requests_routes, "get_db_connection") as get_connection:
+            response = self.client.patch(
+                "/requests/12",
+                json={
+                    "title": "Edited",
+                    "description": "Edited",
+                    "branch": "AIML",
+                    "semester": 4,
+                    "subject": "Machine Learning",
+                },
+                headers=self.auth_headers(7),
+            )
+
+        self.assertEqual(response.status_code, 400)
+        get_connection.assert_not_called()
+
+    def test_owner_can_permanently_delete_request_without_deleting_resource(self):
+        cursor = MagicMock()
+        cursor.rowcount = 1
+        cursor.fetchone.return_value = {"request_id": 12, "user_id": 7}
+        connection = MagicMock()
+        connection.cursor.return_value = cursor
+
+        with patch.object(requests_routes, "get_db_connection", return_value=connection):
+            response = self.client.delete(
+                "/requests/12",
+                headers=self.auth_headers(7),
+            )
+
+        self.assertEqual(response.status_code, 200)
+        delete_call = next(
+            call for call in cursor.execute.call_args_list
+            if "DELETE FROM requests" in call.args[0]
+        )
+        self.assertEqual(delete_call.args[1], (12, 7))
+        self.assertFalse(any(
+            "DELETE FROM resources" in call.args[0]
+            for call in cursor.execute.call_args_list
+        ))
+        connection.commit.assert_called_once()
+
+    def test_user_cannot_permanently_delete_another_users_request(self):
+        cursor = MagicMock()
+        cursor.fetchone.return_value = {"request_id": 12, "user_id": 7}
+        connection = MagicMock()
+        connection.cursor.return_value = cursor
+
+        with patch.object(requests_routes, "get_db_connection", return_value=connection):
+            response = self.client.delete(
+                "/requests/12",
+                headers=self.auth_headers(99),
+            )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(cursor.execute.call_count, 1)
+        connection.commit.assert_not_called()
+
+    def test_owner_can_permanently_delete_fulfilled_request(self):
+        cursor = MagicMock()
+        cursor.rowcount = 1
+        cursor.fetchone.return_value = {"request_id": 12, "user_id": 7}
+        connection = MagicMock()
+        connection.cursor.return_value = cursor
+
+        with patch.object(requests_routes, "get_db_connection", return_value=connection):
+            response = self.client.delete(
+                "/requests/12",
+                headers=self.auth_headers(7),
+            )
+
+        self.assertEqual(response.status_code, 200)
+        connection.commit.assert_called_once()
+
+    def test_cancelled_status_is_not_a_supported_filter(self):
+        with patch.object(requests_routes, "get_db_connection") as get_connection:
+            response = self.client.get(
+                "/requests?status=Cancelled",
+                headers=self.auth_headers(7),
+            )
+
+        self.assertEqual(response.status_code, 400)
+        get_connection.assert_not_called()
+
+    def test_cancelled_status_cannot_be_set(self):
+        with patch.object(requests_routes, "get_db_connection") as get_connection:
+            response = self.client.patch(
+                "/requests/12/status",
+                json={"status": "Cancelled"},
+                headers=self.auth_headers(7),
+            )
+
+        self.assertEqual(response.status_code, 400)
+        get_connection.assert_not_called()
+
+    def test_cancel_endpoint_is_not_registered(self):
+        response = self.client.patch(
+            "/requests/12/cancel",
+            headers=self.auth_headers(7),
+        )
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_normal_request_lists_query_only_existing_rows(self):
+        for path, expected_owner_filter in [
+            ("/requests", False),
+            ("/requests/my", True),
+        ]:
+            with self.subTest(path=path):
+                cursor = MagicMock()
+                cursor.fetchall.return_value = []
+                connection = MagicMock()
+                connection.cursor.return_value = cursor
+
+                with patch.object(requests_routes, "get_db_connection", return_value=connection):
+                    response = self.client.get(path, headers=self.auth_headers(7))
+
+                self.assertEqual(response.status_code, 200)
+                query = cursor.execute.call_args.args[0]
+                self.assertNotIn("deleted_at", query)
+                self.assertEqual("req.user_id = %s" in query, expected_owner_filter)
+
+    def test_deleted_request_details_are_not_accessible(self):
+        cursor = MagicMock()
+        cursor.fetchone.return_value = None
+        connection = MagicMock()
+        connection.cursor.return_value = cursor
+
+        with patch.object(requests_routes, "get_db_connection", return_value=connection):
+            response = self.client.get("/requests/12", headers=self.auth_headers(7))
+
+        self.assertEqual(response.status_code, 404)
+        self.assertNotIn("deleted_at", cursor.execute.call_args.args[0])
 
 
 if __name__ == "__main__":

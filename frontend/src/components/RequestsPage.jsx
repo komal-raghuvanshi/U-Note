@@ -9,6 +9,7 @@ function RequestsPage({ user, onNavigate }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [successMsg, setSuccessMsg] = useState('')
+  const [editingRequestId, setEditingRequestId] = useState(null)
 
   // Filter state for browsing
   const [statusFilter, setStatusFilter] = useState('all')
@@ -21,6 +22,7 @@ function RequestsPage({ user, onNavigate }) {
     semester: user?.semester || '',
     subject: '',
     unit: 'all',
+    title: '',
     description: ''
   })
   const [unitOptions, setUnitOptions] = useState([])
@@ -142,6 +144,7 @@ function RequestsPage({ user, onNavigate }) {
   }
 
   const handleTabChange = (tab) => {
+    setEditingRequestId(null)
     setActiveTab(tab)
     setError('')
     setSuccessMsg('')
@@ -171,15 +174,21 @@ function RequestsPage({ user, onNavigate }) {
       setError('Please describe what study material or notes you need.')
       return
     }
+    if (!formData.title.trim()) {
+      setError('Please enter a title for your request.')
+      return
+    }
 
     setSubmitting(true)
     try {
+      const isEditing = Boolean(editingRequestId)
       const res = await apiFetch(
-        '/requests',
+        isEditing ? `/requests/${editingRequestId}` : '/requests',
         {
-          method: 'POST',
+          method: isEditing ? 'PATCH' : 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            title: formData.title.trim(),
             branch: formData.branch,
             semester: formData.semester,
             subject: formData.subject,
@@ -190,18 +199,34 @@ function RequestsPage({ user, onNavigate }) {
         user.token
       )
 
+      const contentType = res.headers.get('content-type') || ''
+      if (!contentType.includes('application/json')) {
+        setError(
+          `Unable to ${isEditing ? 'save changes' : 'submit the request'}: ` +
+          `the server returned an unexpected response (HTTP ${res.status}).`
+        )
+        return
+      }
+
       const data = await res.json()
       if (res.ok && data.success) {
-        setSuccessMsg('Your request has been submitted to the community!')
-        setFormData((prev) => ({ ...prev, description: '' }))
+        setSuccessMsg(isEditing
+          ? 'Your request has been updated.'
+          : 'Your request has been submitted to the community!')
+        setEditingRequestId(null)
+        setFormData((prev) => ({ ...prev, title: '', description: '' }))
         fetchRequests()
         if (user?.token) {
           fetchMyRequests()
         }
-        setTimeout(() => {
-          setActiveTab('browse')
-          setSuccessMsg('')
-        }, 1500)
+        if (isEditing) {
+          setActiveTab('my')
+        } else {
+          setTimeout(() => {
+            setActiveTab('browse')
+            setSuccessMsg('')
+          }, 1500)
+        }
       } else {
         setError(data.message || 'Failed to submit request.')
       }
@@ -209,6 +234,46 @@ function RequestsPage({ user, onNavigate }) {
       setError('Failed to connect to backend server.')
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  const handleEditRequest = (req) => {
+    setError('')
+    setSuccessMsg('')
+    setEditingRequestId(req.id)
+    setFormData({
+      branch: req.branch || '',
+      semester: String(req.semester_num || req.semester || '').replace('Semester ', ''),
+      subject: req.subject || '',
+      unit: req.unit ? String(req.unit) : 'all',
+      title: req.title || req.subject || '',
+      description: req.description || ''
+    })
+    setActiveTab('create')
+  }
+
+  const handleDeleteRequest = async (requestId) => {
+    if (!window.confirm('Permanently delete this request? Any linked resource will remain available.')) {
+      return
+    }
+    setError('')
+    setSuccessMsg('')
+    try {
+      const res = await apiFetch(
+        `/requests/${requestId}`,
+        { method: 'DELETE' },
+        user.token
+      )
+      const data = await res.json()
+      if (!res.ok || !data.success) {
+        setError(data.message || 'Unable to delete this request.')
+        return
+      }
+      setSuccessMsg(data.message || 'Request deleted successfully.')
+      fetchRequests()
+      fetchMyRequests()
+    } catch {
+      setError('Unable to connect while deleting this request.')
     }
   }
 
@@ -231,6 +296,8 @@ function RequestsPage({ user, onNavigate }) {
       )
       const data = await res.json()
       if (res.ok && data.success) {
+        setSuccessMsg(data.message || 'Request status updated.')
+        setError('')
         fetchRequests()
         if (user?.token) fetchMyRequests()
       } else {
@@ -331,7 +398,7 @@ function RequestsPage({ user, onNavigate }) {
           {activeTab === 'create' && (
             <div className="share-form-wrapper request-form-wrapper">
               <h2 className="share-form-title" style={{ fontSize: '1.5rem', marginBottom: '0.5rem' }}>
-                Submit a Resource Request
+                {editingRequestId ? 'Edit Resource Request' : 'Submit a Resource Request'}
               </h2>
               <p className="share-form-subtitle" style={{ marginBottom: '1.5rem' }}>
                 Fill in the academic details so teachers or students can share the exact material you need.
@@ -362,6 +429,21 @@ function RequestsPage({ user, onNavigate }) {
                 </div>
               ) : (
                 <form onSubmit={handleSubmitRequest} className="share-resource-form">
+                  <div className="form-group">
+                    <label htmlFor="req-title">Request title *</label>
+                    <input
+                      id="req-title"
+                      name="title"
+                      type="text"
+                      className="form-control"
+                      maxLength={200}
+                      placeholder="e.g. Machine Learning Unit 3 notes"
+                      value={formData.title}
+                      onChange={handleFormChange}
+                      required
+                    />
+                  </div>
+
                   <div className="form-row">
                     <div className="form-group">
                       <label htmlFor="req-branch">Branch *</label>
@@ -472,15 +554,17 @@ function RequestsPage({ user, onNavigate }) {
 
                   <div className="form-button-row">
                     <button type="submit" className="btn btn-primary" disabled={submitting}>
-                      {submitting ? 'Submitting...' : 'Post Request'}
+                      {submitting
+                        ? (editingRequestId ? 'Saving...' : 'Submitting...')
+                        : (editingRequestId ? 'Save Changes' : 'Post Request')}
                     </button>
                     <button
                       type="button"
                       className="btn btn-secondary"
-                      onClick={() => handleTabChange('browse')}
+                      onClick={() => handleTabChange(editingRequestId ? 'my' : 'browse')}
                       disabled={submitting}
                     >
-                      Cancel
+                      {editingRequestId ? 'Discard Changes' : 'Back to Requests'}
                     </button>
                   </div>
                 </form>
@@ -594,6 +678,7 @@ function RequestsPage({ user, onNavigate }) {
                   {displayedRequests.map((req) => {
                     const isFulfilled = req.status === 'Fulfilled'
                     const isRejected = req.status === 'Rejected'
+                    const isPending = req.status === 'Pending'
                     const isOwner = Boolean(user?.id && String(user.id) === String(req.user_id))
 
                     const statusClass =
@@ -619,9 +704,10 @@ function RequestsPage({ user, onNavigate }) {
                           </span>
                         </div>
 
-                        <h3 className="request-subject-title">
-                          {req.subject_code ? `${req.subject_code} - ` : ''}{req.subject}
-                        </h3>
+                        <h3 className="request-subject-title">{req.title || req.subject}</h3>
+                        {req.subject_code && (
+                          <p className="request-subject-line">Subject code: {req.subject_code}</p>
+                        )}
 
                         <p className="request-unit-tag">
                           Scope: <strong>{req.unit ? `Unit ${req.unit}${req.unit_name ? `: ${req.unit_name}` : ''}` : 'All Units'}</strong>
@@ -662,7 +748,7 @@ function RequestsPage({ user, onNavigate }) {
                           </div>
 
                           <div className="request-actions">
-                            {!isFulfilled && !isRejected && (
+                            {isPending && (
                               <button
                                 type="button"
                                 className="btn btn-secondary btn-sm"
@@ -673,14 +759,14 @@ function RequestsPage({ user, onNavigate }) {
                               </button>
                             )}
 
-                            {isOwner && !isFulfilled && !isRejected && (
+                            {isOwner && isPending && (
                               <button
                                 type="button"
                                 className="btn btn-outline btn-sm"
-                                onClick={() => handleUpdateStatus(req.id, 'Rejected')}
-                                title="Close your request"
+                                onClick={() => handleEditRequest(req)}
+                                title="Edit your pending request"
                               >
-                                Close Request
+                                Edit
                               </button>
                             )}
 
@@ -692,6 +778,17 @@ function RequestsPage({ user, onNavigate }) {
                                 title="Reopen your request"
                               >
                                 Reopen Request
+                              </button>
+                            )}
+
+                            {isOwner && (
+                              <button
+                                type="button"
+                                className="btn btn-outline btn-sm btn-danger"
+                                onClick={() => handleDeleteRequest(req.id)}
+                                title="Permanently delete this request"
+                              >
+                                Delete
                               </button>
                             )}
                           </div>

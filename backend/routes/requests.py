@@ -21,6 +21,7 @@ def get_requests():
     query = """
         SELECT
             req.request_id AS id,
+            COALESCE(req.request_title, s.subject_name) AS title,
             req.request_description AS description,
             req.status,
             req.fulfilled_by,
@@ -118,6 +119,55 @@ def _semester_number(value):
         return value
 
 
+def _resolve_academic_scope(cursor, branch, semester, subject, unit):
+    try:
+        sem_num = int(str(semester).replace("Semester", "").strip())
+        if not 1 <= sem_num <= 8:
+            raise ValueError
+    except (ValueError, TypeError):
+        return None, None, "Semester must be between 1 and 8."
+
+    cursor.execute("""
+        SELECT s.subject_id, s.subject_name
+        FROM subjects s
+        JOIN semesters sem ON s.semester_id = sem.semester_id
+        JOIN branches b ON sem.branch_id = b.branch_id
+        LEFT JOIN subject_catalogue_metadata meta ON meta.subject_id = s.subject_id
+        WHERE LOWER(b.branch_name) = LOWER(%s)
+          AND sem.semester_name = %s
+          AND COALESCE(meta.is_selectable, 1) = 1
+          AND (
+              LOWER(s.subject_name) = LOWER(%s)
+              OR LOWER(s.subject_code) = LOWER(%s)
+              OR LOWER(COALESCE(meta.catalogue_code, s.subject_code)) = LOWER(%s)
+          )
+    """, (branch, f"Semester {sem_num}", subject, subject, subject))
+    subject_row = cursor.fetchone()
+    if not subject_row:
+        return None, None, (
+            f"Subject '{subject}' not found for {branch} Semester {sem_num}."
+        )
+
+    unit_id = None
+    if unit and str(unit).strip().lower() not in ("all", "all units"):
+        try:
+            unit_number = int(str(unit).replace("Unit", "").strip())
+            if unit_number < 1:
+                raise ValueError
+        except (ValueError, TypeError):
+            return None, None, "Unit must be a positive number or 'all'."
+        cursor.execute(
+            "SELECT unit_id FROM units WHERE subject_id = %s AND unit_number = %s",
+            (subject_row["subject_id"], unit_number)
+        )
+        unit_row = cursor.fetchone()
+        if not unit_row:
+            return None, None, "Selected unit is not available for this subject."
+        unit_id = unit_row["unit_id"]
+
+    return subject_row["subject_id"], unit_id, None
+
+
 @requests_bp.route("/requests", methods=["POST"])
 @require_auth
 def create_request():
@@ -127,14 +177,20 @@ def create_request():
     branch_raw = data.get("branch")
     subject_raw = data.get("subject")
     description_raw = data.get("description")
-    if not all(isinstance(value, str) for value in (branch_raw, subject_raw, description_raw)):
-        return jsonify({"success": False, "message": "Branch, subject, and description must be text."}), 400
+    title_raw = data.get("title", subject_raw)
+    if not all(isinstance(value, str) for value in (branch_raw, subject_raw, description_raw, title_raw)):
+        return jsonify({"success": False, "message": "Title, branch, subject, and description must be text."}), 400
     branch = branch_raw.strip()
     semester = data.get("semester")
     subject = subject_raw.strip()
     unit = data.get("unit")
+    title = title_raw.strip()
     description = description_raw.strip()
 
+    if not title:
+        return jsonify({"success": False, "message": "Request title is required."}), 400
+    if len(title) > 200:
+        return jsonify({"success": False, "message": "Request title must be 200 characters or fewer."}), 400
     if not description:
         return jsonify({"success": False, "message": "Request description is required."}), 400
     if len(description) > 2000:
@@ -142,13 +198,6 @@ def create_request():
 
     if not branch or not semester or not subject:
         return jsonify({"success": False, "message": "Branch, semester, and subject are required."}), 400
-
-    try:
-        sem_num = int(str(semester).replace("Semester", "").strip())
-        if not 1 <= sem_num <= 8:
-            raise ValueError
-    except (ValueError, TypeError):
-        return jsonify({"success": False, "message": "Invalid user or semester value."}), 400
 
     connection = None
     cursor = None
@@ -161,53 +210,17 @@ def create_request():
         if not user_row:
             return jsonify({"success": False, "message": "User not found."}), 401
 
-        # Validate subject
-        cursor.execute("""
-            SELECT s.subject_id, s.subject_name
-            FROM subjects s
-            JOIN semesters sem ON s.semester_id = sem.semester_id
-            JOIN branches b ON sem.branch_id = b.branch_id
-            LEFT JOIN subject_catalogue_metadata meta ON meta.subject_id = s.subject_id
-            WHERE LOWER(b.branch_name) = LOWER(%s)
-              AND sem.semester_name = %s
-              AND COALESCE(meta.is_selectable, 1) = 1
-              AND (
-                  LOWER(s.subject_name) = LOWER(%s)
-                  OR LOWER(s.subject_code) = LOWER(%s)
-                  OR LOWER(COALESCE(meta.catalogue_code, s.subject_code)) = LOWER(%s)
-              )
-        """, (branch, f"Semester {sem_num}", subject, subject, subject))
-        subj_row = cursor.fetchone()
-        if not subj_row:
-            return jsonify({
-                "success": False,
-                "message": f"Subject '{subject}' not found for {branch} Semester {sem_num}."
-            }), 400
-
-        subject_id = subj_row["subject_id"]
-
-        # Optional unit validation
-        unit_id = None
-        if unit and str(unit).lower() not in ("all", "all units", ""):
-            try:
-                unit_num = int(str(unit).replace("Unit", "").strip())
-                if unit_num < 1:
-                    raise ValueError
-                cursor.execute(
-                    "SELECT unit_id FROM units WHERE subject_id = %s AND unit_number = %s",
-                    (subject_id, unit_num)
-                )
-                unit_row = cursor.fetchone()
-                if not unit_row:
-                    return jsonify({"success": False, "message": "Selected unit is not available for this subject."}), 400
-                unit_id = unit_row["unit_id"]
-            except (ValueError, TypeError):
-                return jsonify({"success": False, "message": "Unit must be a positive number or 'all'."}), 400
+        subject_id, unit_id, validation_error = _resolve_academic_scope(
+            cursor, branch, semester, subject, unit
+        )
+        if validation_error:
+            return jsonify({"success": False, "message": validation_error}), 400
 
         cursor.execute("""
-            INSERT INTO requests (user_id, subject_id, unit_id, request_description, status)
-            VALUES (%s, %s, %s, %s, 'Pending')
-        """, (g.user_id, subject_id, unit_id, description))
+            INSERT INTO requests
+                (user_id, subject_id, unit_id, request_title, request_description, status)
+            VALUES (%s, %s, %s, %s, %s, 'Pending')
+        """, (g.user_id, subject_id, unit_id, title, description))
         connection.commit()
         new_id = cursor.lastrowid
 
@@ -229,6 +242,169 @@ def create_request():
             connection.close()
 
 
+@requests_bp.route("/requests/<int:request_id>", methods=["PATCH"])
+@require_auth
+def edit_request(request_id):
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"success": False, "message": "Invalid request payload."}), 400
+
+    title = data.get("title")
+    description = data.get("description")
+    branch = data.get("branch")
+    semester = data.get("semester")
+    subject = data.get("subject")
+    unit = data.get("unit")
+    if not all(isinstance(value, str) for value in (title, description, branch, subject)):
+        return jsonify({
+            "success": False,
+            "message": "Title, description, branch, and subject must be text."
+        }), 400
+    if "unit" not in data:
+        return jsonify({"success": False, "message": "Unit selection is required."}), 400
+
+    title = title.strip()
+    description = description.strip()
+    branch = branch.strip()
+    subject = subject.strip()
+    if not title or len(title) > 200:
+        return jsonify({
+            "success": False,
+            "message": "Request title must be between 1 and 200 characters."
+        }), 400
+    if not description or len(description) > 2000:
+        return jsonify({
+            "success": False,
+            "message": "Request description must be between 1 and 2000 characters."
+        }), 400
+    if not branch or not subject or semester in (None, ""):
+        return jsonify({
+            "success": False,
+            "message": "Branch, semester, and subject are required."
+        }), 400
+
+    connection = None
+    cursor = None
+    try:
+        connection = get_db_connection()
+        cursor = connection.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT request_id, user_id, status
+            FROM requests
+            WHERE request_id = %s
+            FOR UPDATE
+        """, (request_id,))
+        req = cursor.fetchone()
+        if not req:
+            return jsonify({"success": False, "message": "Request not found."}), 404
+        if req["user_id"] != g.user_id:
+            return jsonify({
+                "success": False,
+                "message": "You are not authorized to edit this request."
+            }), 403
+        if req["status"] != "Pending":
+            return jsonify({
+                "success": False,
+                "message": "Only pending requests can be edited."
+            }), 409
+
+        subject_id, unit_id, validation_error = _resolve_academic_scope(
+            cursor, branch, semester, subject, unit
+        )
+        if validation_error:
+            return jsonify({"success": False, "message": validation_error}), 400
+
+        cursor.execute("""
+            UPDATE requests
+            SET request_title = %s,
+                request_description = %s,
+                subject_id = %s,
+                unit_id = %s
+            WHERE request_id = %s
+              AND user_id = %s
+              AND status = 'Pending'
+        """, (title, description, subject_id, unit_id, request_id, g.user_id))
+        if cursor.rowcount != 1:
+            connection.rollback()
+            return jsonify({
+                "success": False,
+                "message": "The request changed before your edit could be saved."
+            }), 409
+
+        connection.commit()
+        return jsonify({
+            "success": True,
+            "message": "Request updated successfully."
+        }), 200
+    except Exception:
+        if connection:
+            connection.rollback()
+        current_app.logger.exception("Resource request update failed")
+        return jsonify({
+            "success": False,
+            "message": "Unable to update the resource request."
+        }), 500
+    finally:
+        if cursor:
+            cursor.close()
+        if connection:
+            connection.close()
+
+
+@requests_bp.route("/requests/<int:request_id>", methods=["DELETE"])
+@require_auth
+def delete_request(request_id):
+    connection = None
+    cursor = None
+    try:
+        connection = get_db_connection()
+        cursor = connection.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT request_id, user_id
+            FROM requests
+            WHERE request_id = %s
+            FOR UPDATE
+        """, (request_id,))
+        req = cursor.fetchone()
+        if not req:
+            return jsonify({"success": False, "message": "Request not found."}), 404
+        if req["user_id"] != g.user_id:
+            return jsonify({
+                "success": False,
+                "message": "You are not authorized to delete this request."
+            }), 403
+
+        cursor.execute(
+            "DELETE FROM requests WHERE request_id = %s AND user_id = %s",
+            (request_id, g.user_id)
+        )
+        if cursor.rowcount != 1:
+            connection.rollback()
+            return jsonify({
+                "success": False,
+                "message": "The request could not be deleted."
+            }), 409
+
+        connection.commit()
+        return jsonify({
+            "success": True,
+            "message": "Request deleted successfully."
+        }), 200
+    except Exception:
+        if connection:
+            connection.rollback()
+        current_app.logger.exception("Resource request deletion failed")
+        return jsonify({
+            "success": False,
+            "message": "Unable to delete the resource request."
+        }), 500
+    finally:
+        if cursor:
+            cursor.close()
+        if connection:
+            connection.close()
+
+
 @requests_bp.route("/requests/my", methods=["GET"])
 @require_auth
 def get_my_requests():
@@ -240,6 +416,7 @@ def get_my_requests():
         cursor.execute("""
         SELECT
             req.request_id AS id,
+            COALESCE(req.request_title, s.subject_name) AS title,
             req.request_description AS description,
             req.status,
             req.fulfilled_by,
@@ -327,7 +504,7 @@ def update_request_status(request_id):
         if req["status"] == "Fulfilled":
             return jsonify({
                 "success": False,
-                "message": "A fulfilled request cannot be manually changed."
+                "message": "This request status cannot be manually changed."
             }), 409
         if req["status"] == new_status:
             return jsonify({
@@ -380,6 +557,7 @@ def get_request(request_id):
         cursor.execute("""
             SELECT
                 req.request_id AS id,
+                COALESCE(req.request_title, s.subject_name) AS title,
                 req.request_description AS description,
                 req.status,
                 req.user_id,

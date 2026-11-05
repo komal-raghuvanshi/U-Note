@@ -144,6 +144,7 @@ CREATE TABLE IF NOT EXISTS requests (
     user_id INT NOT NULL,
     subject_id INT NOT NULL,
     unit_id INT NULL,
+    request_title VARCHAR(200) NULL,
     request_description TEXT NOT NULL,
     status VARCHAR(20) NOT NULL DEFAULT 'Pending',
     fulfilled_by INT NULL,
@@ -159,7 +160,8 @@ CREATE TABLE IF NOT EXISTS requests (
         REFERENCES users(user_id),
     FOREIGN KEY (fulfilled_resource_id)
         REFERENCES resources(resource_id) ON DELETE RESTRICT,
-    CHECK (status IN ('Pending', 'Fulfilled', 'Rejected'))
+    CONSTRAINT chk_requests_status
+        CHECK (status IN ('Pending', 'Fulfilled', 'Rejected'))
 );
 
 -- 12. Saved Resources

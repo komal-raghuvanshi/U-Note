@@ -316,6 +316,75 @@ class ResourceRouteTests(unittest.TestCase):
         self.assertEqual(update_call.args[1], (42, 101, 41))
         connection.commit.assert_called_once()
 
+    def test_deleted_request_cannot_be_fulfilled(self):
+        cursor = MagicMock()
+        cursor.fetchone.side_effect = [
+            {"branch_id": 2, "branch_name": "AIML"},
+            {"semester_id": 8, "semester_name": "Semester 4"},
+            {"subject_id": 13, "subject_name": "Machine Learning", "subject_code": "AL-405"},
+            {"user_id": 42, "name": "Student B", "role": "student"},
+            None,
+        ]
+        connection = MagicMock()
+        connection.cursor.return_value = cursor
+
+        with patch.object(resources, "get_db_connection", return_value=connection):
+            response = self.client.post(
+                "/resources/upload",
+                data={
+                    "file": (BytesIO(b"resource content"), "notes.pdf"),
+                    "title": "Machine Learning notes",
+                    "branch": "AIML",
+                    "semester": "4",
+                    "subject": "Machine Learning",
+                    "unit": "all",
+                    "type": "PDF Notes",
+                    "request_id": "41",
+                },
+                content_type="multipart/form-data",
+                headers=self.auth_headers(42),
+            )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertFalse(any("INSERT INTO resources" in call.args[0] for call in cursor.execute.call_args_list))
+        self.assertFalse(any("UPDATE requests" in call.args[0] for call in cursor.execute.call_args_list))
+        self.assertEqual(os.listdir(self.upload_directory.name), [])
+        connection.commit.assert_not_called()
+
+    def test_soft_deleted_request_cannot_be_fulfilled(self):
+        cursor = MagicMock()
+        cursor.fetchone.side_effect = [
+            {"branch_id": 2, "branch_name": "AIML"},
+            {"semester_id": 8, "semester_name": "Semester 4"},
+            {"subject_id": 13, "subject_name": "Machine Learning", "subject_code": "AL-405"},
+            {"user_id": 42, "name": "Student B", "role": "student"},
+            None,
+        ]
+        connection = MagicMock()
+        connection.cursor.return_value = cursor
+
+        with patch.object(resources, "get_db_connection", return_value=connection):
+            response = self.client.post(
+                "/resources/upload",
+                data={
+                    "file": (BytesIO(b"resource content"), "notes.pdf"),
+                    "title": "Machine Learning notes",
+                    "branch": "AIML",
+                    "semester": "4",
+                    "subject": "Machine Learning",
+                    "unit": "all",
+                    "type": "PDF Notes",
+                    "request_id": "41",
+                },
+                content_type="multipart/form-data",
+                headers=self.auth_headers(42),
+            )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertFalse(any("INSERT INTO resources" in call.args[0] for call in cursor.execute.call_args_list))
+        self.assertEqual(os.listdir(self.upload_directory.name), [])
+        connection.commit.assert_not_called()
+
     def test_teacher_upload_fulfills_request_with_equal_permissions(self):
         self.assert_upload_fulfills_request("teacher")
 
@@ -410,6 +479,7 @@ class ResourceRouteTests(unittest.TestCase):
             if "FOR UPDATE" in call.args[0]
         )
         self.assertIn("user_id", request_lock.args[0])
+        self.assertNotIn("deleted_at", request_lock.args[0])
         self.assertEqual(request_lock.args[1], (41,))
         resource_insert = next(
             call for call in cursor.execute.call_args_list
