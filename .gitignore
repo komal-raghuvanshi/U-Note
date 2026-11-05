@@ -18,3 +18,6 @@ Thumbs.db
 # Uploaded files - do not push user uploads to GitHub
 /backend/uploads/*
 !/backend/uploads/.gitkeep
+
+# Local database backup contains user data and password hashes
+/database/u_note_backup.sql

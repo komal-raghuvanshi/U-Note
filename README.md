@@ -16,19 +16,30 @@ U-NOTE is a React + Vite frontend and Flask + MySQL platform for sharing and fin
 
 Create a MySQL database and tables by running `database/scheme.sql` on a fresh database. To update an existing database, inspect the applicable migration and current table contents first, then make a backup before applying it. `database/migration_add_branches_and_units.sql` seeds the original branch/unit setup and uses subject IDs that must match the target database. `database/migration_add_aiml_catalogue_and_ds.sql` additively seeds the AIML subject catalogue, elective metadata, and the DS branch with semesters only. No migration is run automatically by the application.
 
-Set the backend environment variables before starting Flask:
+Set the backend environment variables before starting Flask. The connector uses
+the configured values directly; only the port has a default:
 
-| Variable | Default | Description |
+| Variable | Required/default | Description |
 |---|---|---|
-| `UNOTE_DB_HOST` | `localhost` | MySQL host |
+| `UNOTE_DB_HOST` | Required | MySQL host |
 | `UNOTE_DB_PORT` | `3306` | MySQL port |
-| `UNOTE_DB_USER` | `root` | MySQL user |
-| `UNOTE_DB_PASSWORD` | empty | MySQL password |
-| `UNOTE_DB_NAME` | `u_note` | Database name |
-| `UNOTE_SECRET_KEY` | none | Required to create or validate login sessions; set a long random value |
+| `UNOTE_DB_USER` | Required | MySQL user |
+| `UNOTE_DB_PASSWORD` | Required | MySQL password |
+| `UNOTE_DB_NAME` | Required | Database name (`u_note` locally; Aiven production uses `defaultdb`) |
+| `UNOTE_SECRET_KEY` | Required for authentication | Set a long, random value |
 | `UNOTE_CORS_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | Comma-separated allowed frontend origins |
+| `UNOTE_EMAIL` | Optional | Sender account for the contact form |
+| `UNOTE_EMAIL_APP_PASSWORD` | Optional | App password for the contact email account |
 
 Keep credentials in environment variables; do not commit them. Existing sessions are signed, expire after seven days, and are stored by the frontend in browser local storage.
+
+### Aiven and Vercel
+
+- Place Aiven's public CA certificate at `backend/ca.pem`. Connections to Aiven hosts use that certificate with certificate and hostname verification enabled. Local non-Aiven MySQL connections do not use the Aiven CA.
+- Configure `UNOTE_DB_HOST`, `UNOTE_DB_PORT`, `UNOTE_DB_USER`, `UNOTE_DB_PASSWORD`, `UNOTE_DB_NAME`, and `UNOTE_SECRET_KEY` in each Vercel environment that needs the backend. Use a separate database/user and secret for Preview rather than production data. Set `UNOTE_CORS_ORIGINS` if the frontend is served from a different origin.
+- The production frontend uses the same-origin `/api` path by default, so `VITE_API_BASE_URL` is only needed when the API is hosted elsewhere. It is a build-time Vite variable.
+- Do not run `database/scheme.sql` or a migration against Aiven without reviewing its target: the schema bootstrap and several existing SQL files explicitly select `u_note`, while the production database is `defaultdb`. Migrations are not run automatically.
+- Vercel's `/tmp/unote_uploads` and the backend profile-photo directory are not durable storage. Uploaded resources and profile photos need persistent object storage before relying on them in production.
 
 ### Backend
 

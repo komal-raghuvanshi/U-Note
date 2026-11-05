@@ -11,12 +11,24 @@ contact_bp = Blueprint("contact", __name__)
 
 @contact_bp.route("/contact", methods=["POST"])
 def send_contact_message():
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({
+            "success": False,
+            "message": "A JSON object is required."
+        }), 400
 
-    name = data.get("name", "").strip()
-    email = data.get("email", "").strip()
-    subject = data.get("subject", "").strip()
-    message = data.get("message", "").strip()
+    fields = ("name", "email", "subject", "message")
+    if any(not isinstance(data.get(field), str) for field in fields):
+        return jsonify({
+            "success": False,
+            "message": "All fields must be text."
+        }), 400
+
+    name = data["name"].strip()
+    email = data["email"].strip()
+    subject = data["subject"].strip()
+    message = data["message"].strip()
 
     if not all([name, email, subject, message]):
         return jsonify({
