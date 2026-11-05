@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { apiFetch } from '../api'
+import { useAcademicOptions } from '../hooks/useAcademicOptions'
 
 function AuthPages({ mode = 'login', onNavigate, onLoginSuccess }) {
   const isLogin = mode === 'login'
@@ -8,30 +9,20 @@ function AuthPages({ mode = 'login', onNavigate, onLoginSuccess }) {
     email: '',
     password: '',
     branch: '',
-    semester: '4'
+    semester: ''
   })
-  const [branches, setBranches] = useState([])
+  const { branches, semesters, branchesLoading, semestersLoading } =
+    useAcademicOptions(formData.branch, formData.semester)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
-  useEffect(() => {
-    let active = true
-    apiFetch('/branches')
-      .then(async (response) => {
-        const data = await response.json()
-        if (response.ok && active) {
-          setBranches(Array.isArray(data.branches) ? data.branches : [])
-        }
-      })
-      .catch(() => {
-        if (active) setBranches([])
-      })
-    return () => { active = false }
-  }, [])
-
   const handleChange = (e) => {
     const { name, value } = e.target
-    setFormData((prev) => ({ ...prev, [name]: value }))
+    setFormData((prev) => ({
+      ...prev,
+      [name]: value,
+      ...(name === 'branch' ? { semester: '' } : {})
+    }))
     setError('')
   }
 
@@ -176,10 +167,18 @@ function AuthPages({ mode = 'login', onNavigate, onLoginSuccess }) {
                     value={formData.semester}
                     onChange={handleChange}
                     required
+                    disabled={!formData.branch || semestersLoading || branchesLoading}
                   >
-                    {[1, 2, 3, 4, 5, 6, 7, 8].map((sem) => (
-                      <option key={sem} value={sem}>
-                        Semester {sem}
+                    <option value="" disabled>
+                      {!formData.branch
+                        ? 'Select branch first'
+                        : semestersLoading
+                          ? 'Loading semesters...'
+                          : 'Select semester'}
+                    </option>
+                    {semesters.map((sem) => (
+                      <option key={sem.id} value={sem.number}>
+                        {sem.name}
                       </option>
                     ))}
                   </select>

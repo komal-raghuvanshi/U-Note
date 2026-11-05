@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { apiFetch } from '../api'
+import { formatSubjectOption, useAcademicOptions } from '../hooks/useAcademicOptions'
 
 function ShareResource({ onBack, user }) {
   const [submitted, setSubmitted] = useState(false)
@@ -17,66 +18,17 @@ function ShareResource({ onBack, user }) {
     type: ''
   })
 
-  const [subjectOptions, setSubjectOptions] = useState([])
-  const [subjectsLoading, setSubjectsLoading] = useState(false)
-
   const [unitOptions, setUnitOptions] = useState([])
   const [unitsLoading, setUnitsLoading] = useState(false)
-  const [branchOptions, setBranchOptions] = useState([])
+  const {
+    branches: branchOptions,
+    semesters,
+    subjects: subjectOptions,
+    subjectsLoading,
+    branchesLoading,
+    semestersLoading,
+  } = useAcademicOptions(formData.branch, formData.semester)
   const isYouTubeResource = formData.type.toLowerCase().includes('youtube')
-
-  useEffect(() => {
-    let ignore = false
-    apiFetch('/branches')
-      .then(async (response) => {
-        const data = await response.json()
-        if (response.ok && !ignore) {
-          setBranchOptions(Array.isArray(data.branches) ? data.branches : [])
-        }
-      })
-      .catch(() => {
-        if (!ignore) setBranchOptions([])
-      })
-    return () => { ignore = true }
-  }, [])
-
-  // Fetch subjects when branch or semester changes
-  useEffect(() => {
-    let ignore = false
-
-    async function fetchSubjects() {
-      setSubjectsLoading(true)
-      setSubjectOptions([])
-
-      const params = new URLSearchParams()
-      if (formData.branch) params.append('branch', formData.branch)
-      if (formData.semester) params.append('semester', formData.semester)
-
-      try {
-        const res = await apiFetch(`/subjects?${params.toString()}`)
-        if (!res.ok) throw new Error('failed')
-        const data = await res.json()
-        if (!ignore) {
-          setSubjectOptions(Array.isArray(data) ? data : [])
-          setSubjectsLoading(false)
-        }
-      } catch {
-        if (!ignore) {
-          setSubjectOptions([])
-          setSubjectsLoading(false)
-        }
-      }
-    }
-
-    if (formData.branch && formData.semester) {
-      fetchSubjects()
-    } else {
-      setSubjectOptions([])
-      setSubjectsLoading(false)
-    }
-
-    return () => { ignore = true }
-  }, [formData.branch, formData.semester])
 
   // Fetch units when subject changes
   useEffect(() => {
@@ -119,8 +71,10 @@ function ShareResource({ onBack, user }) {
     setFormData((prev) => ({
       ...prev,
       [name]: value,
-      ...(name === 'branch' || name === 'semester'
-        ? { subject: '', unit: '' }
+      ...(name === 'branch'
+        ? { semester: '', subject: '', unit: '' }
+        : name === 'semester'
+          ? { subject: '', unit: '' }
         : name === 'subject'
           ? { unit: '' }
           : {})
@@ -285,7 +239,9 @@ function ShareResource({ onBack, user }) {
                     onChange={handleChange}
                     required
                   >
-                    <option value="" disabled>Select branch</option>
+                    <option value="" disabled>
+                      {branchesLoading ? 'Loading branches...' : 'Select branch'}
+                    </option>
                     {branchOptions.map((branch) => (
                       <option key={branch.id} value={branch.name}>{branch.name}</option>
                     ))}
@@ -301,11 +257,18 @@ function ShareResource({ onBack, user }) {
                     value={formData.semester}
                     onChange={handleChange}
                     required
+                    disabled={!formData.branch || branchesLoading || semestersLoading}
                   >
-                    <option value="" disabled>Select semester</option>
-                    {[1, 2, 3, 4, 5, 6, 7, 8].map((sem) => (
-                      <option key={sem} value={sem}>
-                        Semester {sem}
+                    <option value="" disabled>
+                      {!formData.branch
+                        ? 'Select branch first'
+                        : semestersLoading
+                          ? 'Loading semesters...'
+                          : 'Select semester'}
+                    </option>
+                    {semesters.map((sem) => (
+                      <option key={sem.id} value={sem.number}>
+                        {sem.name}
                       </option>
                     ))}
                   </select>
@@ -322,7 +285,7 @@ function ShareResource({ onBack, user }) {
                     value={formData.subject}
                     onChange={handleChange}
                     required
-                    disabled={subjectsLoading || subjectOptions.length === 0}
+                    disabled={!formData.branch || !formData.semester || subjectsLoading || subjectOptions.length === 0}
                   >
                     <option value="">
                       {subjectsLoading
@@ -332,9 +295,7 @@ function ShareResource({ onBack, user }) {
                           : 'Select subject'}
                     </option>
                     {subjectOptions.map((s) => (
-                      <option key={s.id} value={s.name}>
-                        {s.code ? `${s.code} - ${s.name}` : s.name}
-                      </option>
+                      <option key={s.id} value={s.name}>{formatSubjectOption(s)}</option>
                     ))}
                   </select>
                 </div>

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { apiFetch } from '../api'
+import { formatSubjectOption, useAcademicOptions } from '../hooks/useAcademicOptions'
 
 function RequestsPage({ user, onNavigate }) {
   const [activeTab, setActiveTab] = useState('browse') // 'browse' | 'create' | 'my'
@@ -16,38 +17,23 @@ function RequestsPage({ user, onNavigate }) {
 
   // New Request Form state
   const [formData, setFormData] = useState({
-    branch: user?.branch || 'AIML',
-    semester: user?.semester || '4',
+    branch: user?.branch || '',
+    semester: user?.semester || '',
     subject: '',
     unit: 'all',
     description: ''
   })
-  const [subjectOptions, setSubjectOptions] = useState([])
-  const [subjectsLoading, setSubjectsLoading] = useState(false)
   const [unitOptions, setUnitOptions] = useState([])
   const [unitsLoading, setUnitsLoading] = useState(false)
-  const [branchOptions, setBranchOptions] = useState([])
+  const {
+    branches: branchOptions,
+    semesters,
+    subjects: subjectOptions,
+    subjectsLoading,
+    branchesLoading,
+    semestersLoading,
+  } = useAcademicOptions(formData.branch, formData.semester)
   const [submitting, setSubmitting] = useState(false)
-
-  // Fetch branches for dropdowns
-  useEffect(() => {
-    let ignore = false
-    apiFetch('/branches')
-      .then(async (response) => {
-        const data = await response.json()
-        if (response.ok && !ignore) {
-          const list = Array.isArray(data.branches) ? data.branches : []
-          setBranchOptions(list)
-          if (list.length > 0 && !formData.branch) {
-            setFormData((prev) => ({ ...prev, branch: list[0].name }))
-          }
-        }
-      })
-      .catch(() => {
-        if (!ignore) setBranchOptions([])
-      })
-    return () => { ignore = true }
-  }, [formData.branch])
 
   // Fetch community requests
   const fetchRequests = useCallback(async () => {
@@ -102,46 +88,6 @@ function RequestsPage({ user, onNavigate }) {
     }
   }, [user, fetchMyRequests])
 
-  // Fetch dynamic subjects when form branch or semester changes
-  useEffect(() => {
-    let ignore = false
-    async function loadSubjects() {
-      if (!formData.branch || !formData.semester) {
-        setSubjectOptions([])
-        setSubjectsLoading(false)
-        return
-      }
-      setSubjectsLoading(true)
-      try {
-        const params = new URLSearchParams({
-          branch: formData.branch,
-          semester: formData.semester
-        })
-        const res = await apiFetch(`/subjects?${params.toString()}`)
-        const data = await res.json()
-        if (!ignore) {
-          const list = Array.isArray(data) ? data : []
-          setSubjectOptions(list)
-          // Keep current subject if it exists in the fetched list; otherwise reset
-          setFormData((prev) => {
-            const exists = list.some((s) => s.name === prev.subject)
-            return exists ? prev : { ...prev, subject: '', unit: 'all' }
-          })
-        }
-      } catch {
-        if (!ignore) {
-          setSubjectOptions([])
-          setFormData((prev) => ({ ...prev, subject: '', unit: 'all' }))
-        }
-      } finally {
-        if (!ignore) setSubjectsLoading(false)
-      }
-    }
-
-    loadSubjects()
-    return () => { ignore = true }
-  }, [formData.branch, formData.semester])
-
   // Fetch units when form subject, branch, or semester changes
   useEffect(() => {
     let ignore = false
@@ -179,8 +125,10 @@ function RequestsPage({ user, onNavigate }) {
     setFormData((prev) => ({
       ...prev,
       [name]: value,
-      ...(name === 'branch' || name === 'semester'
-        ? { subject: '', unit: 'all' }
+      ...(name === 'branch'
+        ? { semester: '', subject: '', unit: 'all' }
+        : name === 'semester'
+          ? { subject: '', unit: 'all' }
         : name === 'subject'
           ? { unit: 'all' }
           : {})
@@ -419,21 +367,12 @@ function RequestsPage({ user, onNavigate }) {
                         onChange={handleFormChange}
                         required
                       >
-                        <option value="" disabled>Select Branch</option>
-                        {branchOptions.length > 0 ? (
-                          branchOptions.map((branch) => (
-                            <option key={branch.id} value={branch.name}>{branch.name}</option>
-                          ))
-                        ) : (
-                          <>
-                            <option value="AIML">AIML</option>
-                            <option value="CSE">CSE</option>
-                            <option value="IT">IT</option>
-                            <option value="EC">EC</option>
-                            <option value="ME">ME</option>
-                            <option value="Civil">Civil</option>
-                          </>
-                        )}
+                        <option value="" disabled>
+                          {branchesLoading ? 'Loading branches...' : 'Select branch'}
+                        </option>
+                        {branchOptions.map((branch) => (
+                          <option key={branch.id} value={branch.name}>{branch.name}</option>
+                        ))}
                       </select>
                     </div>
 
@@ -446,9 +385,17 @@ function RequestsPage({ user, onNavigate }) {
                         value={formData.semester}
                         onChange={handleFormChange}
                         required
+                        disabled={!formData.branch || branchesLoading || semestersLoading}
                       >
-                        {[1, 2, 3, 4, 5, 6, 7, 8].map((s) => (
-                          <option key={s} value={s}>Semester {s}</option>
+                        <option value="" disabled>
+                          {!formData.branch
+                            ? 'Select branch first'
+                            : semestersLoading
+                              ? 'Loading semesters...'
+                              : 'Select semester'}
+                        </option>
+                        {semesters.map((sem) => (
+                          <option key={sem.id} value={sem.number}>{sem.name}</option>
                         ))}
                       </select>
                     </div>
@@ -464,7 +411,7 @@ function RequestsPage({ user, onNavigate }) {
                         value={formData.subject}
                         onChange={handleFormChange}
                         required
-                        disabled={subjectsLoading || subjectOptions.length === 0}
+                        disabled={!formData.branch || !formData.semester || subjectsLoading || subjectOptions.length === 0}
                       >
                         <option value="">
                           {subjectsLoading
@@ -475,7 +422,7 @@ function RequestsPage({ user, onNavigate }) {
                         </option>
                         {subjectOptions.map((subj) => (
                           <option key={subj.id || subj.code} value={subj.name}>
-                            {subj.code ? `${subj.code} - ` : ''}{subj.name}
+                            {formatSubjectOption(subj)}
                           </option>
                         ))}
                       </select>
@@ -562,20 +509,9 @@ function RequestsPage({ user, onNavigate }) {
                       onChange={(e) => setBranchFilter(e.target.value)}
                     >
                       <option value="">All Branches</option>
-                      {branchOptions.length > 0 ? (
-                        branchOptions.map((branch) => (
-                          <option key={branch.id} value={branch.name}>{branch.name}</option>
-                        ))
-                      ) : (
-                        <>
-                          <option value="AIML">AIML</option>
-                          <option value="CSE">CSE</option>
-                          <option value="IT">IT</option>
-                          <option value="EC">EC</option>
-                          <option value="ME">ME</option>
-                          <option value="Civil">Civil</option>
-                        </>
-                      )}
+                      {branchOptions.map((branch) => (
+                        <option key={branch.id} value={branch.name}>{branch.name}</option>
+                      ))}
                     </select>
                   </div>
 
@@ -637,7 +573,7 @@ function RequestsPage({ user, onNavigate }) {
                     const isRejected = req.status === 'Rejected'
                     const isOwner = Boolean(user?.id && String(user.id) === String(req.user_id))
                     const isTeacher = user?.role === 'teacher'
-                    const canManage = Boolean(user?.id)
+                    const canManage = isTeacher || isOwner
 
                     const statusClass =
                       isFulfilled

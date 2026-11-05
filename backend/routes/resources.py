@@ -73,7 +73,7 @@ def _fetch_all_resources(owner_id=None):
                 b.branch_name AS branch,
                 sem.semester_name AS semester,
                 s.subject_name AS subject,
-                s.subject_code AS subject_code,
+                COALESCE(meta.catalogue_code, s.subject_code) AS subject_code,
                 u.unit_number AS unit,
                 u.unit_name AS unit_name,
                 r.unit_scope AS unit_scope,
@@ -85,6 +85,7 @@ def _fetch_all_resources(owner_id=None):
                 COALESCE(rating_stats.rating_count, 0) AS rating_count
             FROM resources r
             LEFT JOIN subjects s ON r.subject_id = s.subject_id
+            LEFT JOIN subject_catalogue_metadata meta ON meta.subject_id = s.subject_id
             LEFT JOIN semesters sem ON s.semester_id = sem.semester_id
             LEFT JOIN branches b ON sem.branch_id = b.branch_id
             LEFT JOIN units u ON r.unit_id = u.unit_id
@@ -684,12 +685,18 @@ def upload_resource():
         # 3. Validate Subject for this Semester
         cursor.execute(
             """
-            SELECT subject_id, subject_name, subject_code
-            FROM subjects
-            WHERE semester_id = %s
-              AND (LOWER(subject_name) = LOWER(%s) OR LOWER(subject_code) = LOWER(%s))
+            SELECT s.subject_id, s.subject_name, s.subject_code
+            FROM subjects s
+            LEFT JOIN subject_catalogue_metadata meta ON meta.subject_id = s.subject_id
+            WHERE s.semester_id = %s
+              AND COALESCE(meta.is_selectable, 1) = 1
+              AND (
+                  LOWER(s.subject_name) = LOWER(%s)
+                  OR LOWER(s.subject_code) = LOWER(%s)
+                  OR LOWER(COALESCE(meta.catalogue_code, s.subject_code)) = LOWER(%s)
+              )
             """,
-            (semester_id, subject, subject)
+            (semester_id, subject, subject, subject)
         )
         subject_row = cursor.fetchone()
         if not subject_row:

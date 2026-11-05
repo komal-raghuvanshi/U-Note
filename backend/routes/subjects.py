@@ -27,13 +27,18 @@ def get_subjects():
         query = """
             SELECT
                 s.subject_id AS id,
-                s.subject_code AS code,
+                COALESCE(meta.catalogue_code, s.subject_code) AS code,
                 s.subject_name AS name,
                 b.branch_name AS branch,
-                sem.semester_name AS semester
+                sem.semester_name AS semester,
+                meta.subject_category AS category,
+                meta.elective_group,
+                COALESCE(meta.is_selectable, 1) AS is_selectable,
+                COALESCE(meta.is_provisional, 0) AS is_provisional
             FROM subjects s
             JOIN semesters sem ON s.semester_id = sem.semester_id
             JOIN branches b ON sem.branch_id = b.branch_id
+            LEFT JOIN subject_catalogue_metadata meta ON meta.subject_id = s.subject_id
         """
         conditions = []
         values = []
@@ -75,13 +80,18 @@ def get_subject_by_id(subject_id):
         cursor.execute("""
             SELECT
                 s.subject_id AS id,
-                s.subject_code AS code,
+                COALESCE(meta.catalogue_code, s.subject_code) AS code,
                 s.subject_name AS name,
                 b.branch_name AS branch,
-                sem.semester_name AS semester
+                sem.semester_name AS semester,
+                meta.subject_category AS category,
+                meta.elective_group,
+                COALESCE(meta.is_selectable, 1) AS is_selectable,
+                COALESCE(meta.is_provisional, 0) AS is_provisional
             FROM subjects s
             JOIN semesters sem ON s.semester_id = sem.semester_id
             JOIN branches b ON sem.branch_id = b.branch_id
+            LEFT JOIN subject_catalogue_metadata meta ON meta.subject_id = s.subject_id
             WHERE s.subject_id = %s
         """, (subject_id,))
         subject = cursor.fetchone()

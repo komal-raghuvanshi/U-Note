@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { apiFetch, apiUrl } from '../api'
+import { formatSubjectOption, useAcademicOptions } from '../hooks/useAcademicOptions'
 
 function ResourcesPage({ onSelectResource, onShareClick, initialType = '', user }) {
   const [resources, setResources] = useState([])
@@ -17,15 +18,16 @@ function ResourcesPage({ onSelectResource, onShareClick, initialType = '', user 
   const [unit, setUnit] = useState('')
   const [type, setType] = useState(initialType)
 
-  // Dynamic subject list fetched from backend
-  const [subjectOptions, setSubjectOptions] = useState([])
-  const [subjectsLoading, setSubjectsLoading] = useState(false)
-  const [subjectsError, setSubjectsError] = useState(false)
-
   // Dynamic unit list fetched from backend for selected subject
   const [unitOptions, setUnitOptions] = useState([])
   const [unitsLoading, setUnitsLoading] = useState(false)
-  const [branchOptions, setBranchOptions] = useState([])
+  const {
+    branches: branchOptions,
+    semesters,
+    subjects: subjectOptions,
+    subjectsLoading,
+    error: academicError,
+  } = useAcademicOptions(branch, semester)
 
     // Fetch saved resources for the logged-in user
   useEffect(() => {
@@ -91,55 +93,6 @@ function ResourcesPage({ onSelectResource, onShareClick, initialType = '', user 
       setSavingResourceId(null)
     }
   }
-
-  useEffect(() => {
-    let ignore = false
-    apiFetch('/branches')
-      .then(async (response) => {
-        const data = await response.json()
-        if (response.ok && !ignore) {
-          setBranchOptions(Array.isArray(data.branches) ? data.branches : [])
-        }
-      })
-      .catch(() => {
-        if (!ignore) setBranchOptions([])
-      })
-    return () => { ignore = true }
-  }, [])
-
-  // Fetch subject options whenever branch or semester changes
-  useEffect(() => {
-    let ignore = false
-
-    async function fetchSubjects() {
-      setSubjectsLoading(true)
-      setSubjectOptions([])
-      setSubjectsError(false)
-
-      const params = new URLSearchParams()
-      if (branch) params.append('branch', branch)
-      if (semester) params.append('semester', semester)
-
-      try {
-        const res = await apiFetch(`/subjects?${params.toString()}`)
-        if (!res.ok) throw new Error('failed')
-        const data = await res.json()
-        if (!ignore) {
-          setSubjectOptions(Array.isArray(data) ? data : [])
-          setSubjectsLoading(false)
-        }
-      } catch {
-        if (!ignore) {
-          setSubjectOptions([])
-          setSubjectsLoading(false)
-          setSubjectsError(true)
-        }
-      }
-    }
-
-    fetchSubjects()
-    return () => { ignore = true }
-  }, [branch, semester])
 
   // Fetch unit options whenever subject, branch, or semester changes
   useEffect(() => {
@@ -247,9 +200,10 @@ function ResourcesPage({ onSelectResource, onShareClick, initialType = '', user 
 
   const handleBranchChange = (newBranch) => {
     setBranch(newBranch)
+    setSemester('')
     setSubject('')
     setUnit('')
-    loadResources({ branch: newBranch, subject: '', unit: '' })
+    loadResources({ branch: newBranch, semester: '', subject: '', unit: '' })
   }
 
   const handleSemesterChange = (newSemester) => {
@@ -302,8 +256,10 @@ function ResourcesPage({ onSelectResource, onShareClick, initialType = '', user 
   // Derive the placeholder text for the subject dropdown
   const subjectPlaceholder = subjectsLoading
     ? 'Loading subjects...'
-    : subjectsError
+    : academicError
       ? 'Could not load subjects'
+      : !branch || !semester
+        ? 'Select branch and semester first'
       : subjectOptions.length === 0
         ? 'No subjects available'
         : 'All Subjects'
@@ -368,11 +324,14 @@ function ResourcesPage({ onSelectResource, onShareClick, initialType = '', user 
                 className="form-control"
                 value={semester}
                 onChange={(e) => handleSemesterChange(e.target.value)}
+                disabled={!branch}
               >
-                <option value="">All Semesters</option>
-                {[1, 2, 3, 4, 5, 6, 7, 8].map((s) => (
-                  <option key={s} value={s}>
-                    Semester {s}
+                <option value="">
+                  {branch ? 'All Semesters' : 'Select branch first'}
+                </option>
+                {semesters.map((sem) => (
+                  <option key={sem.id} value={sem.number}>
+                    {sem.name}
                   </option>
                 ))}
               </select>
@@ -386,13 +345,11 @@ function ResourcesPage({ onSelectResource, onShareClick, initialType = '', user 
                 className="form-control"
                 value={subject}
                 onChange={(e) => handleSubjectChange(e.target.value)}
-                disabled={subjectsLoading}
+                disabled={!branch || !semester || subjectsLoading}
               >
                 <option value="">{subjectPlaceholder}</option>
                 {subjectOptions.map((s) => (
-                  <option key={s.id} value={s.name}>
-                    {s.code ? `${s.code} - ${s.name}` : s.name}
-                  </option>
+                  <option key={s.id} value={s.name}>{formatSubjectOption(s)}</option>
                 ))}
               </select>
             </div>

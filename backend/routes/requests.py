@@ -28,7 +28,7 @@ def get_requests():
             u.role AS user_role,
             s.subject_id,
             s.subject_name AS subject,
-            s.subject_code,
+            COALESCE(meta.catalogue_code, s.subject_code) AS subject_code,
             sem.semester_name AS semester,
             b.branch_name AS branch,
             un.unit_number AS unit,
@@ -39,6 +39,7 @@ def get_requests():
         JOIN semesters sem ON s.semester_id = sem.semester_id
         JOIN branches b ON sem.branch_id = b.branch_id
         LEFT JOIN units un ON req.unit_id = un.unit_id
+        LEFT JOIN subject_catalogue_metadata meta ON meta.subject_id = s.subject_id
     """
     conditions = []
     values = []
@@ -58,8 +59,14 @@ def get_requests():
             return jsonify({"success": False, "message": "Semester must be between 1 and 8."}), 400
 
     if subject:
-        conditions.append("(LOWER(s.subject_name) = LOWER(%s) OR LOWER(s.subject_code) = LOWER(%s))")
-        values.extend([subject.strip(), subject.strip()])
+        conditions.append("""
+            (
+                LOWER(s.subject_name) = LOWER(%s)
+                OR LOWER(s.subject_code) = LOWER(%s)
+                OR LOWER(COALESCE(meta.catalogue_code, s.subject_code)) = LOWER(%s)
+            )
+        """)
+        values.extend([subject.strip(), subject.strip(), subject.strip()])
 
     if status and status.lower() != "all":
         if status.lower() not in ("pending", "fulfilled", "rejected"):
@@ -152,10 +159,16 @@ def create_request():
             FROM subjects s
             JOIN semesters sem ON s.semester_id = sem.semester_id
             JOIN branches b ON sem.branch_id = b.branch_id
+            LEFT JOIN subject_catalogue_metadata meta ON meta.subject_id = s.subject_id
             WHERE LOWER(b.branch_name) = LOWER(%s)
               AND sem.semester_name = %s
-              AND (LOWER(s.subject_name) = LOWER(%s) OR LOWER(s.subject_code) = LOWER(%s))
-        """, (branch, f"Semester {sem_num}", subject, subject))
+              AND COALESCE(meta.is_selectable, 1) = 1
+              AND (
+                  LOWER(s.subject_name) = LOWER(%s)
+                  OR LOWER(s.subject_code) = LOWER(%s)
+                  OR LOWER(COALESCE(meta.catalogue_code, s.subject_code)) = LOWER(%s)
+              )
+        """, (branch, f"Semester {sem_num}", subject, subject, subject))
         subj_row = cursor.fetchone()
         if not subj_row:
             return jsonify({
@@ -227,7 +240,7 @@ def get_my_requests():
             u.role AS user_role,
             s.subject_id,
             s.subject_name AS subject,
-            s.subject_code,
+            COALESCE(meta.catalogue_code, s.subject_code) AS subject_code,
             sem.semester_name AS semester,
             b.branch_name AS branch,
             un.unit_number AS unit,
@@ -238,6 +251,7 @@ def get_my_requests():
         JOIN semesters sem ON s.semester_id = sem.semester_id
         JOIN branches b ON sem.branch_id = b.branch_id
         LEFT JOIN units un ON req.unit_id = un.unit_id
+        LEFT JOIN subject_catalogue_metadata meta ON meta.subject_id = s.subject_id
         WHERE req.user_id = %s
         ORDER BY req.request_id DESC
         """, (g.user_id,))

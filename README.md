@@ -14,7 +14,7 @@ U-NOTE is a React + Vite frontend and Flask + MySQL platform for sharing and fin
 
 ### Database
 
-Create a MySQL database and tables by running `database/scheme.sql` on a fresh database. To update an existing database, inspect `database/migration_add_branches_and_units.sql` and the current table contents first, then make a backup before applying it. The migration is additive, but its existing seed statements use subject IDs and must match the target database. No migration is run automatically by the application.
+Create a MySQL database and tables by running `database/scheme.sql` on a fresh database. To update an existing database, inspect the applicable migration and current table contents first, then make a backup before applying it. `database/migration_add_branches_and_units.sql` seeds the original branch/unit setup and uses subject IDs that must match the target database. `database/migration_add_aiml_catalogue_and_ds.sql` additively seeds the AIML subject catalogue, elective metadata, and the DS branch with semesters only. No migration is run automatically by the application.
 
 Set the backend environment variables before starting Flask:
 

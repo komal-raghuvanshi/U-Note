@@ -49,7 +49,19 @@ CREATE TABLE IF NOT EXISTS subjects (
     UNIQUE (subject_code, semester_id)
 );
 
--- 5. Units
+-- 5. Optional catalogue labels for curriculum codes and elective groups.
+CREATE TABLE IF NOT EXISTS subject_catalogue_metadata (
+    subject_id INT NOT NULL PRIMARY KEY,
+    catalogue_code VARCHAR(20) NOT NULL,
+    subject_category VARCHAR(80) NOT NULL,
+    elective_group VARCHAR(100) NULL,
+    is_selectable TINYINT(1) NOT NULL DEFAULT 1,
+    is_provisional TINYINT(1) NOT NULL DEFAULT 0,
+    FOREIGN KEY (subject_id)
+        REFERENCES subjects(subject_id) ON DELETE CASCADE
+);
+
+-- 6. Units
 CREATE TABLE IF NOT EXISTS units (
     unit_id INT AUTO_INCREMENT PRIMARY KEY,
     unit_number INT NOT NULL,
@@ -60,7 +72,7 @@ CREATE TABLE IF NOT EXISTS units (
     UNIQUE (subject_id, unit_number)
 );
 
--- 6. Notes
+-- 7. Notes
 CREATE TABLE IF NOT EXISTS notes (
     note_id INT AUTO_INCREMENT PRIMARY KEY,
     title VARCHAR(200) NOT NULL,
@@ -74,7 +86,7 @@ CREATE TABLE IF NOT EXISTS notes (
         REFERENCES users(user_id)
 );
 
--- 7. Previous Year Question Papers
+-- 8. Previous Year Question Papers
 CREATE TABLE IF NOT EXISTS pyqs (
     pyq_id INT AUTO_INCREMENT PRIMARY KEY,
     title VARCHAR(200) NOT NULL,
@@ -89,7 +101,7 @@ CREATE TABLE IF NOT EXISTS pyqs (
         REFERENCES users(user_id)
 );
 
--- 8. Resources
+-- 9. Resources
 CREATE TABLE IF NOT EXISTS resources (
     resource_id INT AUTO_INCREMENT PRIMARY KEY,
     title VARCHAR(200) NOT NULL,
@@ -109,7 +121,7 @@ CREATE TABLE IF NOT EXISTS resources (
         REFERENCES units(unit_id)
 );
 
--- 9. Ratings
+-- 10. Ratings
 CREATE TABLE IF NOT EXISTS ratings (
     rating_id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL,
@@ -125,7 +137,7 @@ CREATE TABLE IF NOT EXISTS ratings (
     CHECK (rating BETWEEN 1 AND 5)
 );
 
--- 10. Requests
+-- 11. Requests
 CREATE TABLE IF NOT EXISTS requests (
     request_id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL,
@@ -143,7 +155,7 @@ CREATE TABLE IF NOT EXISTS requests (
     CHECK (status IN ('Pending', 'Fulfilled', 'Rejected'))
 );
 
--- 11. Saved Resources
+-- 12. Saved Resources
 CREATE TABLE IF NOT EXISTS saved_resources (
     user_id INT NOT NULL,
     resource_id INT NOT NULL,

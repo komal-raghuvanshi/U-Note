@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { apiFetch, apiUrl } from '../api'
+import { useAcademicOptions } from '../hooks/useAcademicOptions'
 
 const BUILT_IN_AVATARS = [
   { id: 'avatar1', label: 'Tech Student', src: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="50" fill="%232563eb"/><circle cx="50" cy="40" r="20" fill="%23ffd1b3"/><path d="M50 20c-14 0-22 8-22 18 0 4 2 8 5 10 1-5 4-8 10-10 4 1 10 1 14 0 6 2 9 5 10 10 3-2 5-6 5-10 0-10-8-18-22-18z" fill="%23374151"/><circle cx="43" cy="42" r="6" fill="none" stroke="%231e293b" stroke-width="2"/><circle cx="57" cy="42" r="6" fill="none" stroke="%231e293b" stroke-width="2"/><path d="M49 42h2" stroke="%231e293b" stroke-width="2"/><path d="M45 52c3 2 7 2 10 0" fill="none" stroke="%23e11d48" stroke-width="2" stroke-linecap="round"/><path d="M22 88c5-16 16-24 28-24s23 8 28 24" fill="%231e40af"/></svg>' },
@@ -22,9 +23,11 @@ function ProfileModal({ user, initialTab = 'profile', onClose, onLogout, onNavig
 
   // Edit form state
   const [editName, setEditName] = useState(user?.name || '')
-  const [editBranch, setEditBranch] = useState(user?.branch || 'AIML')
-  const [editSemester, setEditSemester] = useState(user?.semester || 4)
+  const [editBranch, setEditBranch] = useState(user?.branch || '')
+  const [editSemester, setEditSemester] = useState(user?.semester || '')
   const [editAvatar, setEditAvatar] = useState(user?.avatar || '')
+  const { branches, semesters, branchesLoading, semestersLoading } =
+    useAcademicOptions(editBranch, editSemester)
 
   useEffect(() => {
     if (activeTab !== 'shared') return
@@ -90,8 +93,8 @@ function ProfileModal({ user, initialTab = 'profile', onClose, onLogout, onNavig
 
   const handleStartEdit = () => {
     setEditName(user.name || '')
-    setEditBranch(user.branch || 'AIML')
-    setEditSemester(user.semester || 4)
+    setEditBranch(user.branch || '')
+    setEditSemester(user.semester || '')
     setEditAvatar(user.avatar || '')
     setIsEditing(true)
   }
@@ -285,14 +288,16 @@ function ProfileModal({ user, initialTab = 'profile', onClose, onLogout, onNavig
                     id="edit-branch"
                     className="form-control"
                     value={editBranch}
-                    onChange={(e) => setEditBranch(e.target.value)}
+                    required
+                    onChange={(e) => {
+                      setEditBranch(e.target.value)
+                      setEditSemester('')
+                    }}
                   >
-                    <option value="AIML">AIML</option>
-                    <option value="CSE">CSE</option>
-                    <option value="IT">IT</option>
-                    <option value="EC">EC</option>
-                    <option value="ME">ME</option>
-                    <option value="Civil">Civil</option>
+                    <option value="">Select branch</option>
+                    {branches.map((branch) => (
+                      <option key={branch.id} value={branch.name}>{branch.name}</option>
+                    ))}
                   </select>
                 </div>
 
@@ -303,10 +308,19 @@ function ProfileModal({ user, initialTab = 'profile', onClose, onLogout, onNavig
                     className="form-control"
                     value={editSemester}
                     onChange={(e) => setEditSemester(e.target.value)}
+                    required
+                    disabled={!editBranch || semestersLoading || branchesLoading}
                   >
-                    {[1, 2, 3, 4, 5, 6, 7, 8].map((s) => (
-                      <option key={s} value={s}>
-                        Semester {s}
+                    <option value="">
+                      {!editBranch
+                        ? 'Select branch first'
+                        : semestersLoading
+                          ? 'Loading semesters...'
+                          : 'Select semester'}
+                    </option>
+                    {semesters.map((sem) => (
+                      <option key={sem.id} value={sem.number}>
+                        {sem.name}
                       </option>
                     ))}
                   </select>
