@@ -68,6 +68,39 @@ class AcademicRouteTests(unittest.TestCase):
         self.assertIn("LEFT JOIN subject_catalogue_metadata", query)
         self.assertEqual(tuple(parameters), ("AIML", "Semester 3"))
 
+    def test_units_are_scoped_to_the_selected_subject_branch_and_semester(self):
+        cursor = MagicMock()
+        cursor.fetchall.return_value = [{
+            "id": 13,
+            "unit_number": 1,
+            "name": "Introduction",
+            "subject_id": 2,
+            "subject_name": "Machine Learning",
+            "subject_code": "AIML402",
+        }]
+        connection = MagicMock()
+        connection.cursor.return_value = cursor
+
+        with patch.object(subjects, "get_db_connection", return_value=connection):
+            response = self.client.get(
+                "/units?subject=Machine%20Learning&branch=AIML&semester=4"
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            [(unit["subject_id"], unit["unit_number"]) for unit in response.get_json()],
+            [(2, 1)],
+        )
+        query, parameters = cursor.execute.call_args.args
+        self.assertIn("JOIN subjects s ON u.subject_id = s.subject_id", query)
+        self.assertIn("LOWER(s.subject_name) = LOWER(%s)", query)
+        self.assertIn("LOWER(b.branch_name) = LOWER(%s)", query)
+        self.assertIn("sem.semester_name = %s", query)
+        self.assertEqual(
+            tuple(parameters),
+            ("Machine Learning", "Machine Learning", "AIML", "Semester 4"),
+        )
+
     def test_signup_accepts_a_ds_semester_from_the_database(self):
         cursor = MagicMock()
         cursor.lastrowid = 501

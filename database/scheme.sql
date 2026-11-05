@@ -66,7 +66,7 @@ CREATE TABLE IF NOT EXISTS subject_catalogue_metadata (
 CREATE TABLE IF NOT EXISTS units (
     unit_id INT AUTO_INCREMENT PRIMARY KEY,
     unit_number INT NOT NULL,
-    unit_name VARCHAR(150) NOT NULL,
+    unit_name VARCHAR(150) NULL,
     subject_id INT NOT NULL,
     FOREIGN KEY (subject_id)
         REFERENCES subjects(subject_id),
