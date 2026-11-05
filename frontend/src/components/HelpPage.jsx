@@ -10,7 +10,7 @@ function HelpPage({ onNavigate }) {
     },
     {
       q: 'How do I find notes for my specific subject and unit?',
-      a: 'Click on the "Resources" link in the top navigation bar. You can use the search bar to enter your subject name, or use the dropdown filters to choose your Branch, Semester, and Unit (1 through 5).'
+      a: 'Click on the "Resources" link in the top navigation bar. You can use the search bar to enter your subject name, or use the dropdown filters to choose your Branch, Semester, and an available unit for that subject.'
     },
     {
       q: 'What types of resources are supported?',

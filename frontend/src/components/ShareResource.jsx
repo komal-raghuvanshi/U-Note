@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { apiFetch } from '../api'
-import { formatSubjectOption, useAcademicOptions } from '../hooks/useAcademicOptions'
+import { useAcademicOptions } from '../hooks/useAcademicOptions'
 
 function ShareResource({ onBack, user, requestId }) {
   const [submitted, setSubmitted] = useState(false)
@@ -312,6 +312,7 @@ function ShareResource({ onBack, user, requestId }) {
                     value={formData.branch}
                     onChange={handleChange}
                     required
+                    disabled={Boolean(requestId)}
                   >
                     <option value="" disabled>
                       {branchesLoading ? 'Loading branches...' : 'Select branch'}
@@ -331,7 +332,7 @@ function ShareResource({ onBack, user, requestId }) {
                     value={formData.semester}
                     onChange={handleChange}
                     required
-                    disabled={!formData.branch || branchesLoading || semestersLoading}
+                    disabled={Boolean(requestId) || !formData.branch || branchesLoading || semestersLoading}
                   >
                     <option value="" disabled>
                       {!formData.branch
@@ -359,7 +360,7 @@ function ShareResource({ onBack, user, requestId }) {
                     value={formData.subject}
                     onChange={handleChange}
                     required
-                    disabled={!formData.branch || !formData.semester || subjectsLoading || subjectOptions.length === 0}
+                    disabled={Boolean(requestId) || !formData.branch || !formData.semester || subjectsLoading || subjectOptions.length === 0}
                   >
                     <option value="">
                       {subjectsLoading
@@ -369,7 +370,7 @@ function ShareResource({ onBack, user, requestId }) {
                           : 'Select subject'}
                     </option>
                     {subjectOptions.map((s) => (
-                      <option key={s.id} value={s.name}>{formatSubjectOption(s)}</option>
+                      <option key={s.id} value={s.name}>{s.name}</option>
                     ))}
                   </select>
                 </div>
@@ -383,7 +384,7 @@ function ShareResource({ onBack, user, requestId }) {
                     value={formData.unit}
                     onChange={handleChange}
                     required
-                    disabled={unitsLoading || !formData.subject}
+                    disabled={Boolean(requestId) || unitsLoading || !formData.subject}
                   >
                     <option value="" disabled>
                       {!formData.subject ? 'Select subject first' : unitsLoading ? 'Loading units...' : 'Select unit'}
@@ -392,7 +393,7 @@ function ShareResource({ onBack, user, requestId }) {
                     {unitOptions.length > 0 ? (
                       unitOptions.map((u) => (
                         <option key={u.id || u.unit_number} value={u.unit_number}>
-                          Unit {u.unit_number}{u.name ? `: ${u.name}` : ''}
+                          Unit {u.unit_number}
                         </option>
                       ))
                     ) : (

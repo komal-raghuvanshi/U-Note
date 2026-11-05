@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { apiFetch, apiUrl } from '../api'
-import { formatSubjectOption, useAcademicOptions } from '../hooks/useAcademicOptions'
+import { useAcademicOptions } from '../hooks/useAcademicOptions'
 
 function ResourcesPage({ onSelectResource, onShareClick, initialType = '', user }) {
   const [resources, setResources] = useState([])
@@ -349,7 +349,7 @@ function ResourcesPage({ onSelectResource, onShareClick, initialType = '', user 
               >
                 <option value="">{subjectPlaceholder}</option>
                 {subjectOptions.map((s) => (
-                  <option key={s.id} value={s.name}>{formatSubjectOption(s)}</option>
+                  <option key={s.id} value={s.name}>{s.name}</option>
                 ))}
               </select>
             </div>
@@ -368,7 +368,7 @@ function ResourcesPage({ onSelectResource, onShareClick, initialType = '', user 
                 {unitOptions.length > 0 ? (
                   unitOptions.map((u) => (
                     <option key={u.id || u.unit_number} value={u.unit_number}>
-                      Unit {u.unit_number}{u.name ? `: ${u.name}` : ''}
+                      Unit {u.unit_number}
                     </option>
                   ))
                 ) : null}

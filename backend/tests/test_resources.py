@@ -107,7 +107,7 @@ class ResourceRouteTests(unittest.TestCase):
     def test_invalid_filters_are_rejected_before_database_access(self):
         with patch.object(resources, "get_db_connection") as get_db_connection:
             invalid_semester = self.client.get("/resources?semester=invalid")
-            invalid_unit = self.client.get("/resources?unit=9")
+            invalid_unit = self.client.get("/resources?unit=0")
 
         self.assertEqual(invalid_semester.status_code, 400)
         self.assertEqual(invalid_unit.status_code, 400)
@@ -270,6 +270,51 @@ class ResourceRouteTests(unittest.TestCase):
 
     def test_student_upload_fulfills_and_links_another_users_request(self):
         self.assert_upload_fulfills_request("student")
+
+    def test_upload_fulfills_a_request_for_an_eighth_unit(self):
+        cursor = MagicMock()
+        cursor.lastrowid = 101
+        cursor.rowcount = 1
+        cursor.fetchone.side_effect = [
+            {"branch_id": 2, "branch_name": "AIML"},
+            {"semester_id": 8, "semester_name": "Semester 4"},
+            {"subject_id": 13, "subject_name": "Machine Learning", "subject_code": "AL-405"},
+            {"unit_id": 88, "unit_name": "Unit 8"},
+            {"user_id": 42, "name": "Student B", "role": "student"},
+            {"request_id": 41, "subject_id": 13, "unit_id": 88, "status": "Pending", "user_id": 7},
+        ]
+        connection = MagicMock()
+        connection.cursor.return_value = cursor
+
+        with patch.object(resources, "get_db_connection", return_value=connection):
+            response = self.client.post(
+                "/resources/upload",
+                data={
+                    "file": (BytesIO(b"resource content"), "unit-8.pdf"),
+                    "title": "Machine Learning Unit 8",
+                    "branch": "AIML",
+                    "semester": "4",
+                    "subject": "Machine Learning",
+                    "unit": "8",
+                    "type": "PDF Notes",
+                    "request_id": "41",
+                },
+                content_type="multipart/form-data",
+                headers=self.auth_headers(42),
+            )
+
+        self.assertEqual(response.status_code, 201, response.get_json())
+        resource_insert = next(
+            call for call in cursor.execute.call_args_list
+            if call.args[0].lstrip().startswith("INSERT INTO resources")
+        )
+        self.assertEqual(resource_insert.args[1][5:7], (88, "unit"))
+        update_call = next(
+            call for call in cursor.execute.call_args_list
+            if "UPDATE requests" in call.args[0]
+        )
+        self.assertEqual(update_call.args[1], (42, 101, 41))
+        connection.commit.assert_called_once()
 
     def test_teacher_upload_fulfills_request_with_equal_permissions(self):
         self.assert_upload_fulfills_request("teacher")

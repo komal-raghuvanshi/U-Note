@@ -2,10 +2,7 @@ import { useEffect, useState } from 'react'
 import { apiFetch } from '../api'
 
 export function formatSubjectOption(subject) {
-  const label = `${subject.code ? `${subject.code} - ` : ''}${subject.name}`
-  if (!subject.category) return label
-  const provisional = subject.is_provisional ? ', provisional' : ''
-  return `${label} (${subject.category}${provisional})`
+  return subject.name
 }
 
 export function useAcademicOptions(branch, semester) {

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { apiFetch, apiUrl } from '../api'
-import { formatSubjectOption, useAcademicOptions } from '../hooks/useAcademicOptions'
+import { useAcademicOptions } from '../hooks/useAcademicOptions'
 
 function RequestsPage({ user, onNavigate }) {
   const [activeTab, setActiveTab] = useState('browse') // 'browse' | 'create' | 'my'
@@ -428,7 +428,7 @@ function RequestsPage({ user, onNavigate }) {
                         </option>
                         {subjectOptions.map((subj) => (
                           <option key={subj.id || subj.code} value={subj.name}>
-                            {formatSubjectOption(subj)}
+                            {subj.name}
                           </option>
                         ))}
                       </select>
@@ -449,7 +449,7 @@ function RequestsPage({ user, onNavigate }) {
                         </option>
                         {unitOptions.map((u) => (
                           <option key={u.id || u.unit_id || u.unit_number} value={u.unit_number}>
-                            Unit {u.unit_number}{u.name ? `: ${u.name}` : u.unit_name ? `: ${u.unit_name}` : ''}
+                            Unit {u.unit_number}
                           </option>
                         ))}
                       </select>

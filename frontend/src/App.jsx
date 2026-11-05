@@ -100,7 +100,13 @@ function App() {
         if (!response.ok) return
         const data = await response.json()
         if (!controller.signal.aborted && data.user) {
-          const refreshedUser = { ...data.user, token: user.token, avatar: savedAvatar || '' }
+          const refreshedUser = {
+            ...data.user,
+            token: user.token,
+            avatar: data.user.profile_photo_url
+              ? apiUrl(data.user.profile_photo_url)
+              : savedAvatar?.startsWith('data:') ? savedAvatar : ''
+          }
           setUser(refreshedUser)
           localStorage.setItem('unote_user', JSON.stringify(refreshedUser))
         }

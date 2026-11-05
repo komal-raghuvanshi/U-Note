@@ -20,14 +20,22 @@ function ProfileModal({ user, initialTab = 'profile', onClose, onLogout, onNavig
   const [deletingId, setDeletingId] = useState(null)
   const [savingProfile, setSavingProfile] = useState(false)
   const [profileError, setProfileError] = useState('')
+  const [profilePhotoFile, setProfilePhotoFile] = useState(null)
+  const [avatarFailed, setAvatarFailed] = useState(false)
 
   // Edit form state
   const [editName, setEditName] = useState(user?.name || '')
   const [editBranch, setEditBranch] = useState(user?.branch || '')
   const [editSemester, setEditSemester] = useState(user?.semester || '')
   const [editAvatar, setEditAvatar] = useState(user?.avatar || '')
+  useEffect(() => {
+    setAvatarFailed(false)
+  }, [user?.avatar])
   const { branches, semesters, branchesLoading, semestersLoading } =
     useAcademicOptions(editBranch, editSemester)
+  const roleLabel = user?.role === 'teacher'
+    ? 'Teacher'
+    : user?.role === 'student' ? 'Student' : 'Member'
 
   useEffect(() => {
     if (activeTab !== 'shared') return
@@ -96,16 +104,28 @@ function ProfileModal({ user, initialTab = 'profile', onClose, onLogout, onNavig
     setEditBranch(user.branch || '')
     setEditSemester(user.semester || '')
     setEditAvatar(user.avatar || '')
+    setProfilePhotoFile(null)
     setIsEditing(true)
   }
 
   const handleCancelEdit = () => {
     setIsEditing(false)
+    setProfilePhotoFile(null)
+    setEditAvatar(user.avatar || '')
+    setProfileError('')
   }
 
   const handleFileChange = (e) => {
     const file = e.target.files[0]
     if (file) {
+      const extension = file.name.split('.').pop()?.toLowerCase()
+      if (!['jpg', 'jpeg', 'png', 'webp'].includes(extension) || file.size > 5 * 1024 * 1024) {
+        setProfileError('Choose a JPG, PNG, or WEBP image no larger than 5 MB.')
+        e.target.value = ''
+        return
+      }
+      setProfilePhotoFile(file)
+      setProfileError('')
       const reader = new FileReader()
       reader.onload = (event) => {
         setEditAvatar(event.target.result)
@@ -119,14 +139,20 @@ function ProfileModal({ user, initialTab = 'profile', onClose, onLogout, onNavig
     setProfileError('')
     setSavingProfile(true)
     try {
+      const profileData = new FormData()
+      profileData.append('name', editName.trim())
+      if (user.role !== 'teacher') {
+        profileData.append('branch', editBranch)
+        profileData.append('semester', String(Number(editSemester)))
+      }
+      if (profilePhotoFile) {
+        profileData.append('profile_photo', profilePhotoFile)
+      } else if (editAvatar.startsWith('data:image/svg+xml')) {
+        profileData.append('remove_profile_photo', '1')
+      }
       const response = await apiFetch('/profile', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: editName.trim(),
-          branch: editBranch,
-          semester: Number(editSemester)
-        })
+        body: profileData
       }, user.token)
       const data = await response.json()
       if (!response.ok) throw new Error(data.message || 'Unable to save profile changes.')
@@ -134,9 +160,12 @@ function ProfileModal({ user, initialTab = 'profile', onClose, onLogout, onNavig
         onUpdateUser({
           ...data.user,
           token: user.token,
-          avatar: editAvatar
+          avatar: data.user.profile_photo_url
+            ? apiUrl(data.user.profile_photo_url)
+            : profilePhotoFile ? '' : editAvatar
         })
       }
+      setProfilePhotoFile(null)
       setIsEditing(false)
     } catch (error) {
       setProfileError(error.message || 'Unable to save profile changes.')
@@ -181,16 +210,28 @@ function ProfileModal({ user, initialTab = 'profile', onClose, onLogout, onNavig
         {/* Profile Header */}
         <div className="profile-modal-header">
           <div className="profile-avatar-large">
-            {user.avatar ? (
-              <img src={user.avatar} alt={user.name} className="profile-avatar-img-large" />
+            {user.avatar && !avatarFailed ? (
+              <img
+                src={user.avatar}
+                alt={user.name}
+                className="profile-avatar-img-large"
+                onError={() => setAvatarFailed(true)}
+              />
             ) : (
-              <span>{user.name.charAt(0).toUpperCase()}</span>
+              <span>{(user.name || 'U').charAt(0).toUpperCase()}</span>
             )}
           </div>
           <div className="profile-header-info">
             <h2 className="profile-modal-name">{user.name}</h2>
             <p className="profile-modal-email">{user.email}</p>
-            <span className="profile-badge-tag">{user.branch} · Semester {user.semester}</span>
+            <div className="profile-identity-badges">
+              <span className={`role-badge role-badge-${user.role || 'member'}`}>
+                {roleLabel}
+              </span>
+              {user.role !== 'teacher' && user.branch && user.semester && (
+                <span className="profile-badge-tag">{user.branch} · Semester {user.semester}</span>
+              )}
+            </div>
           </div>
 
           {!isEditing && activeTab === 'profile' && (
@@ -245,7 +286,10 @@ function ProfileModal({ user, initialTab = 'profile', onClose, onLogout, onNavig
                       key={av.id}
                       type="button"
                       className={`avatar-option-btn ${editAvatar === av.src ? 'selected' : ''}`}
-                      onClick={() => setEditAvatar(av.src)}
+                      onClick={() => {
+                        setEditAvatar(av.src)
+                        setProfilePhotoFile(null)
+                      }}
                       title={av.label}
                     >
                       <img src={av.src} alt={av.label} className="avatar-option-img" />
@@ -261,7 +305,7 @@ function ProfileModal({ user, initialTab = 'profile', onClose, onLogout, onNavig
                   <input
                     type="file"
                     id="avatar-file-input"
-                    accept="image/*"
+                    accept=".jpg,.jpeg,.png,.webp"
                     className="form-control file-input"
                     onChange={handleFileChange}
                   />
@@ -281,7 +325,7 @@ function ProfileModal({ user, initialTab = 'profile', onClose, onLogout, onNavig
                 />
               </div>
 
-              <div className="form-row">
+              {user.role !== 'teacher' && <div className="form-row">
                 <div className="form-group">
                   <label htmlFor="edit-branch">Branch</label>
                   <select
@@ -325,7 +369,7 @@ function ProfileModal({ user, initialTab = 'profile', onClose, onLogout, onNavig
                     ))}
                   </select>
                 </div>
-              </div>
+              </div>}
 
               {profileError && <p className="error-message" role="alert">{profileError}</p>}
 
@@ -352,17 +396,23 @@ function ProfileModal({ user, initialTab = 'profile', onClose, onLogout, onNavig
                     <span className="meta-value">{user.name}</span>
                   </div>
                   <div className="meta-item">
-                    <span className="meta-label">Institution</span>
-                    <span className="meta-value">JIT Borawan (RGPV Affiliated)</span>
+                    <span className="meta-label">Role</span>
+                    <span className="meta-value">
+                      {roleLabel}
+                    </span>
                   </div>
-                  <div className="meta-item">
+                  {user.role !== 'teacher' && (
+                    <div className="meta-item">
                     <span className="meta-label">Branch</span>
                     <span className="meta-value">{user.branch}</span>
-                  </div>
-                  <div className="meta-item">
+                    </div>
+                  )}
+                  {user.role !== 'teacher' && (
+                    <div className="meta-item">
                     <span className="meta-label">Current Semester</span>
                     <span className="meta-value">Semester {user.semester}</span>
-                  </div>
+                    </div>
+                  )}
                 </div>
               )}
 

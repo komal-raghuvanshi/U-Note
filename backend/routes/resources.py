@@ -211,10 +211,10 @@ def get_resources():
         if not all_units:
             try:
                 target_unit = int(normalized_unit.replace("unit", "").strip())
-                if not 1 <= target_unit <= 5:
+                if target_unit < 1:
                     raise ValueError
             except ValueError:
-                return jsonify({"success": False, "message": "Unit must be between 1 and 5, or 'all'."}), 400
+                return jsonify({"success": False, "message": "Unit must be a positive number or 'all'."}), 400
 
     try:
         all_resources = _fetch_all_resources()
@@ -663,10 +663,10 @@ def upload_resource():
     if unit_scope == "unit":
         try:
             unit_num = int(str(unit).replace("Unit", "").strip())
-            if unit_num < 1 or unit_num > 5:
+            if unit_num < 1:
                 raise ValueError
         except (ValueError, TypeError):
-            return jsonify({"success": False, "message": "Invalid unit number"}), 400
+            return jsonify({"success": False, "message": "Unit must be a positive number."}), 400
 
     uploaded_by = g.user_id
 

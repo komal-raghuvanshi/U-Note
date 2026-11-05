@@ -73,7 +73,12 @@ class AcademicRouteTests(unittest.TestCase):
         cursor.lastrowid = 501
         cursor.fetchone.side_effect = [
             None,
-            {"branch_id": 7, "semester_id": 52, "semester_name": "Semester 3"},
+            {
+                "branch_id": 7,
+                "semester_id": 52,
+                "semester_name": "Semester 3",
+                "branch_name": "DS",
+            },
         ]
         connection = MagicMock()
         connection.cursor.return_value = cursor
@@ -95,6 +100,7 @@ class AcademicRouteTests(unittest.TestCase):
     def test_profile_update_accepts_a_ds_semester_from_the_database(self):
         cursor = MagicMock()
         cursor.fetchone.side_effect = [
+            {"role": "student"},
             {"branch_id": 7, "semester_id": 52},
             {
                 "user_id": 501,
@@ -120,7 +126,7 @@ class AcademicRouteTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json()["user"]["branch"], "DS")
         self.assertEqual(response.get_json()["user"]["semester"], 3)
-        update_query, update_values = cursor.execute.call_args_list[0].args
+        update_query, update_values = cursor.execute.call_args_list[1].args
         self.assertIn("FROM branches b", update_query)
         self.assertEqual(update_values, ("DS", "Semester 3"))
 

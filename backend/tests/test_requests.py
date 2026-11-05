@@ -64,6 +64,38 @@ class RequestRouteTests(unittest.TestCase):
         self.assertEqual(insert_call.args[1], (7, 10, None, "Need notes"))
         connection.commit.assert_called_once()
 
+    def test_request_can_target_an_eighth_unit(self):
+        cursor = MagicMock()
+        cursor.lastrowid = 42
+        cursor.fetchone.side_effect = [
+            {"user_id": 7, "name": "Student A"},
+            {"subject_id": 10, "subject_name": "Machine Learning"},
+            {"unit_id": 88},
+        ]
+        connection = MagicMock()
+        connection.cursor.return_value = cursor
+
+        with patch.object(requests_routes, "get_db_connection", return_value=connection):
+            response = self.client.post(
+                "/requests",
+                json={
+                    "branch": "AIML",
+                    "semester": 4,
+                    "subject": "Machine Learning",
+                    "unit": "8",
+                    "description": "Need Unit 8 notes",
+                },
+                headers=self.auth_headers(7),
+            )
+
+        self.assertEqual(response.status_code, 201)
+        insert_call = next(
+            call for call in cursor.execute.call_args_list
+            if "INSERT INTO requests" in call.args[0]
+        )
+        self.assertEqual(insert_call.args[1], (7, 10, 88, "Need Unit 8 notes"))
+        connection.commit.assert_called_once()
+
     def test_student_cannot_update_another_users_request(self):
         cursor = MagicMock()
         cursor.fetchone.return_value = {

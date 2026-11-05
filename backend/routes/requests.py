@@ -191,7 +191,7 @@ def create_request():
         if unit and str(unit).lower() not in ("all", "all units", ""):
             try:
                 unit_num = int(str(unit).replace("Unit", "").strip())
-                if not 1 <= unit_num <= 5:
+                if unit_num < 1:
                     raise ValueError
                 cursor.execute(
                     "SELECT unit_id FROM units WHERE subject_id = %s AND unit_number = %s",
@@ -202,7 +202,7 @@ def create_request():
                     return jsonify({"success": False, "message": "Selected unit is not available for this subject."}), 400
                 unit_id = unit_row["unit_id"]
             except (ValueError, TypeError):
-                return jsonify({"success": False, "message": "Unit must be between 1 and 5, or 'all'."}), 400
+                return jsonify({"success": False, "message": "Unit must be a positive number or 'all'."}), 400
 
         cursor.execute("""
             INSERT INTO requests (user_id, subject_id, unit_id, request_description, status)
