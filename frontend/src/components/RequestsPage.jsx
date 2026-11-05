@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { apiFetch } from '../api'
+import { apiFetch, apiUrl } from '../api'
 import { formatSubjectOption, useAcademicOptions } from '../hooks/useAcademicOptions'
 
 function RequestsPage({ user, onNavigate }) {
@@ -37,6 +37,12 @@ function RequestsPage({ user, onNavigate }) {
 
   // Fetch community requests
   const fetchRequests = useCallback(async () => {
+    if (!user?.token) {
+      setRequests([])
+      setLoading(false)
+      return
+    }
+
     setLoading(true)
     setError('')
     try {
@@ -44,7 +50,7 @@ function RequestsPage({ user, onNavigate }) {
       if (branchFilter) params.append('branch', branchFilter)
       if (statusFilter && statusFilter !== 'all') params.append('status', statusFilter)
 
-      const res = await apiFetch(`/requests?${params.toString()}`)
+      const res = await apiFetch(`/requests?${params.toString()}`, {}, user.token)
       const data = await res.json()
       if (res.ok && data.success) {
         setRequests(data.requests || [])
@@ -56,7 +62,7 @@ function RequestsPage({ user, onNavigate }) {
     } finally {
       setLoading(false)
     }
-  }, [branchFilter, statusFilter])
+  }, [branchFilter, statusFilter, user])
 
   // Fetch user's own requests
   const fetchMyRequests = useCallback(async () => {
@@ -294,7 +300,7 @@ function RequestsPage({ user, onNavigate }) {
             >
               + Request Notes / Material
             </button>
-            {user && (
+            {user?.token && (
               <button
                 type="button"
                 className={`btn requests-tab-btn ${activeTab === 'my' ? 'active' : 'btn-secondary'}`}
@@ -483,7 +489,24 @@ function RequestsPage({ user, onNavigate }) {
           )}
 
           {/* Tab 2 & 3: Browse All or My Requests */}
-          {activeTab !== 'create' && (
+          {activeTab !== 'create' && !user?.token && (
+            <div className="prototype-badge-box" style={{ backgroundColor: '#eff6ff', borderColor: '#bfdbfe' }}>
+              <span className="prototype-badge-pill" style={{ backgroundColor: '#1d4ed8' }}>Login Needed</span>
+              <p className="prototype-badge-text" style={{ color: '#1e40af' }}>
+                Please{' '}
+                <button
+                  type="button"
+                  onClick={() => onNavigate('/login')}
+                  style={{ background: 'none', border: 'none', color: '#1d4ed8', fontWeight: 700, cursor: 'pointer', textDecoration: 'underline' }}
+                >
+                  log in
+                </button>{' '}
+                to view community requests.
+              </p>
+            </div>
+          )}
+
+          {activeTab !== 'create' && user?.token && (
             <>
               {/* Filter controls */}
               <div className="filters-card requests-filter-card">
@@ -572,8 +595,6 @@ function RequestsPage({ user, onNavigate }) {
                     const isFulfilled = req.status === 'Fulfilled'
                     const isRejected = req.status === 'Rejected'
                     const isOwner = Boolean(user?.id && String(user.id) === String(req.user_id))
-                    const isTeacher = user?.role === 'teacher'
-                    const canManage = isTeacher || isOwner
 
                     const statusClass =
                       isFulfilled
@@ -610,6 +631,25 @@ function RequestsPage({ user, onNavigate }) {
                           <p>{req.description}</p>
                         </div>
 
+                        {isFulfilled && (
+                          <div className="request-description-box">
+                            <p>
+                              Shared by <strong>{req.fulfilled_by_name || 'Community member'}</strong>
+                            </p>
+                            {req.fulfilled_resource_title && req.fulfilled_resource_url && (
+                              <a
+                                href={req.fulfilled_resource_url.startsWith('http')
+                                  ? req.fulfilled_resource_url
+                                  : apiUrl(req.fulfilled_resource_url)}
+                                target="_blank"
+                                rel="noreferrer"
+                              >
+                                View shared resource: {req.fulfilled_resource_title}
+                              </a>
+                            )}
+                          </div>
+                        )}
+
                         <div className="request-footer">
                           <div className="request-user-info">
                             <span className="request-avatar-circle">
@@ -626,32 +666,32 @@ function RequestsPage({ user, onNavigate }) {
                               <button
                                 type="button"
                                 className="btn btn-secondary btn-sm"
-                                onClick={() => onNavigate('/share-resource')}
+                                onClick={() => onNavigate(`/share-resource?request_id=${encodeURIComponent(req.id)}`)}
                                 title="Upload and share the notes requested here"
                               >
-                                Share Notes &rarr;
+                                Share Resource &rarr;
                               </button>
                             )}
 
-                            {canManage && !isFulfilled && !isRejected && (
+                            {isOwner && !isFulfilled && !isRejected && (
                               <button
                                 type="button"
                                 className="btn btn-outline btn-sm"
-                                onClick={() => handleUpdateStatus(req.id, 'Fulfilled')}
-                                title="Mark this request as fulfilled"
+                                onClick={() => handleUpdateStatus(req.id, 'Rejected')}
+                                title="Close your request"
                               >
-                                Mark Fulfilled ✓
+                                Close Request
                               </button>
                             )}
 
-                            {isTeacher && req.status === 'Pending' && (
+                            {isOwner && isRejected && (
                               <button
                                 type="button"
                                 className="btn btn-outline btn-sm btn-danger"
-                                onClick={() => handleUpdateStatus(req.id, 'Rejected')}
-                                title="Reject invalid or duplicate request"
+                                onClick={() => handleUpdateStatus(req.id, 'Pending')}
+                                title="Reopen your request"
                               >
-                                Reject ✕
+                                Reopen Request
                               </button>
                             )}
                           </div>

@@ -149,11 +149,14 @@ class ResourceRouteTests(unittest.TestCase):
             f.write(b"delete me")
 
         cursor = MagicMock()
-        cursor.fetchone.return_value = {
-            "resource_id": 10,
-            "resource_url": f"/uploads/{filename}",
-            "uploaded_by": 5
-        }
+        cursor.fetchone.side_effect = [
+            {
+                "resource_id": 10,
+                "resource_url": f"/uploads/{filename}",
+                "uploaded_by": 5
+            },
+            None,
+        ]
         connection = MagicMock()
         connection.cursor.return_value = cursor
 
@@ -181,6 +184,194 @@ class ResourceRouteTests(unittest.TestCase):
             response = self.client.delete("/resources/10", headers=self.auth_headers(5))
 
         self.assertEqual(response.status_code, 403)
+
+    def test_request_linked_resource_cannot_be_deleted(self):
+        cursor = MagicMock()
+        cursor.fetchone.side_effect = [
+            {
+                "resource_id": 10,
+                "resource_url": "/uploads/linked.pdf",
+                "uploaded_by": 5,
+            },
+            {"request_id": 25},
+        ]
+        connection = MagicMock()
+        connection.cursor.return_value = cursor
+
+        with patch.object(resources, "get_db_connection", return_value=connection):
+            response = self.client.delete("/resources/10", headers=self.auth_headers(5))
+
+        self.assertEqual(response.status_code, 409)
+        self.assertFalse(any("DELETE FROM resources" in call.args[0] for call in cursor.execute.call_args_list))
+        connection.commit.assert_not_called()
+
+    def test_saved_resources_only_return_the_authenticated_users_saved_items(self):
+        cursor = MagicMock()
+        cursor.fetchall.return_value = [{"resource_id": 9}]
+        connection = MagicMock()
+        connection.cursor.return_value = cursor
+        resources_for_user = [
+            {"id": 9, "title": "Saved resource"},
+            {"id": 10, "title": "Not saved by this user"},
+        ]
+
+        with patch.object(resources, "get_db_connection", return_value=connection), patch.object(
+            resources, "_fetch_all_resources", return_value=resources_for_user
+        ):
+            response = self.client.get("/resources/saved", headers=self.auth_headers(42))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual([item["id"] for item in response.get_json()["resources"]], [9])
+        query, parameters = cursor.execute.call_args.args
+        self.assertIn("WHERE user_id = %s", query)
+        self.assertEqual(parameters, (42,))
+
+    def test_saving_a_resource_uses_the_authenticated_user_id(self):
+        cursor = MagicMock()
+        cursor.fetchone.return_value = {"resource_id": 9}
+        connection = MagicMock()
+        connection.cursor.return_value = cursor
+
+        with patch.object(resources, "get_db_connection", return_value=connection):
+            response = self.client.post(
+                "/resources/9/saved",
+                headers=self.auth_headers(42),
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.get_json()["saved"])
+        query, parameters = cursor.execute.call_args_list[1].args
+        self.assertIn("INSERT IGNORE INTO saved_resources", query)
+        self.assertEqual(parameters, (42, 9))
+
+    def test_rating_submission_is_scoped_to_the_authenticated_user(self):
+        cursor = MagicMock()
+        cursor.fetchone.side_effect = [
+            {"user_id": 42},
+            {"resource_id": 9},
+            {"avg_rating": 4.0, "rating_count": 2},
+        ]
+        connection = MagicMock()
+        connection.cursor.return_value = cursor
+
+        with patch.object(resources, "get_db_connection", return_value=connection):
+            response = self.client.post(
+                "/resources/9/ratings",
+                json={"rating": 4, "review": "Helpful"},
+                headers=self.auth_headers(42),
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.get_json()["success"])
+        rating_query, rating_values = cursor.execute.call_args_list[2].args
+        self.assertIn("INSERT INTO ratings (user_id, resource_id, rating, review)", rating_query)
+        self.assertEqual(rating_values, (42, 9, 4, "Helpful"))
+        connection.commit.assert_called_once()
+
+    def test_student_upload_fulfills_and_links_another_users_request(self):
+        self.assert_upload_fulfills_request("student")
+
+    def test_teacher_upload_fulfills_request_with_equal_permissions(self):
+        self.assert_upload_fulfills_request("teacher")
+
+    def test_upload_database_failure_does_not_commit_request_fulfillment(self):
+        cursor = MagicMock()
+        cursor.lastrowid = 101
+        cursor.rowcount = 1
+        cursor.fetchone.side_effect = [
+            {"branch_id": 2, "branch_name": "AIML"},
+            {"semester_id": 8, "semester_name": "Semester 4"},
+            {"subject_id": 13, "subject_name": "Machine Learning", "subject_code": "AL-405"},
+            {"user_id": 42, "name": "Student B", "role": "student"},
+            {"request_id": 41, "subject_id": 13, "unit_id": None, "status": "Pending", "user_id": 7},
+        ]
+        connection = MagicMock()
+        connection.cursor.return_value = cursor
+        connection.commit.side_effect = RuntimeError("simulated commit failure")
+
+        with patch.object(resources, "get_db_connection", return_value=connection):
+            response = self.client.post(
+                "/resources/upload",
+                data={
+                    "file": (BytesIO(b"resource content"), "notes.pdf"),
+                    "title": "Machine Learning notes",
+                    "branch": "AIML",
+                    "semester": "4",
+                    "subject": "Machine Learning",
+                    "unit": "all",
+                    "type": "PDF Notes",
+                    "request_id": "41",
+                },
+                content_type="multipart/form-data",
+                headers=self.auth_headers(42),
+            )
+
+        self.assertEqual(response.status_code, 500)
+        connection.rollback.assert_called_once()
+        update_call = next(
+            call for call in cursor.execute.call_args_list
+            if "UPDATE requests" in call.args[0]
+        )
+        self.assertEqual(update_call.args[1], (42, 101, 41))
+        uploaded_file = next(iter(os.listdir(self.upload_directory.name)), None)
+        self.assertIsNone(uploaded_file)
+
+    def assert_upload_fulfills_request(self, role):
+        cursor = MagicMock()
+        cursor.lastrowid = 101
+        cursor.rowcount = 1
+        cursor.fetchone.side_effect = [
+            {"branch_id": 2, "branch_name": "AIML"},
+            {"semester_id": 8, "semester_name": "Semester 4"},
+            {"subject_id": 13, "subject_name": "Machine Learning", "subject_code": "AL-405"},
+            {"user_id": 42, "name": "Contributor", "role": role},
+            {"request_id": 41, "subject_id": 13, "unit_id": None, "status": "Pending", "user_id": 7},
+        ]
+        connection = MagicMock()
+        connection.cursor.return_value = cursor
+
+        with patch.object(resources, "get_db_connection", return_value=connection):
+            response = self.client.post(
+                "/resources/upload",
+                data={
+                    "file": (BytesIO(b"resource content"), "notes.pdf"),
+                    "title": "Machine Learning notes",
+                    "branch": "AIML",
+                    "semester": "4",
+                    "subject": "Machine Learning",
+                    "unit": "all",
+                    "type": "PDF Notes",
+                    "request_id": "41",
+                },
+                content_type="multipart/form-data",
+                headers=self.auth_headers(42),
+            )
+
+        self.assertEqual(response.status_code, 201, response.get_json())
+        self.assertEqual(response.get_json()["request"], {
+            "id": 41,
+            "status": "Fulfilled",
+            "fulfilled_by": 42,
+            "fulfilled_resource_id": 101,
+        })
+        update_call = next(
+            call for call in cursor.execute.call_args_list
+            if "UPDATE requests" in call.args[0]
+        )
+        self.assertIn("status = 'Fulfilled'", update_call.args[0])
+        self.assertEqual(update_call.args[1], (42, 101, 41))
+        request_lock = next(
+            call for call in cursor.execute.call_args_list
+            if "FOR UPDATE" in call.args[0]
+        )
+        self.assertIn("user_id", request_lock.args[0])
+        self.assertEqual(request_lock.args[1], (41,))
+        resource_insert = next(
+            call for call in cursor.execute.call_args_list
+            if call.args[0].lstrip().startswith("INSERT INTO resources")
+        )
+        self.assertEqual(resource_insert.args[1][4], 42)
+        connection.commit.assert_called_once()
 
     def assert_upload_persists_unit_scope(self, selected_unit, unit_row, expected_scope):
         cursor = MagicMock()

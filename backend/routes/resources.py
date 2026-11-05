@@ -15,6 +15,11 @@ resources_bp = Blueprint("resources", __name__)
 ALLOWED_EXTENSIONS = {"pdf", "png", "jpg", "jpeg"}
 MAX_FILE_SIZE = 25 * 1024 * 1024  # 25 MB
 
+
+class RequestFulfillmentConflict(Exception):
+    pass
+
+
 if os.environ.get("VERCEL"):
     UPLOAD_FOLDER = "/tmp/unote_uploads"
 else:
@@ -510,6 +515,16 @@ def delete_resource(resource_id):
                 "message": "You are not authorized to delete this resource"
             }), 403
 
+        cursor.execute(
+            "SELECT request_id FROM requests WHERE fulfilled_resource_id = %s LIMIT 1",
+            (resource_id,)
+        )
+        if cursor.fetchone():
+            return jsonify({
+                "success": False,
+                "message": "This resource fulfills a request and cannot be deleted."
+            }), 409
+
         url = (res.get("resource_url") or "").strip()
         fname = secure_filename(url[len("/uploads/"):]) if url.startswith("/uploads/") else ""
 
@@ -592,6 +607,15 @@ def upload_resource():
         _text_input(req_json, "youtube_url")
         or _text_input(req_json, "url")
     )
+    request_id_raw = request.form.get("request_id") or req_json.get("request_id")
+    request_id = None
+    if request_id_raw not in (None, ""):
+        try:
+            request_id = int(request_id_raw)
+            if request_id < 1:
+                raise ValueError
+        except (ValueError, TypeError):
+            return jsonify({"success": False, "message": "Invalid request ID."}), 400
 
     file = request.files.get("file")
 
@@ -733,6 +757,41 @@ def upload_resource():
         uploaded_by = user_row["user_id"]
         uploader_role = user_row.get("role") or "student"
 
+        if request_id is not None:
+            cursor.execute(
+                """
+                SELECT request_id, subject_id, unit_id, status, user_id
+                FROM requests
+                WHERE request_id = %s
+                FOR UPDATE
+                """,
+                (request_id,)
+            )
+            request_row = cursor.fetchone()
+            if not request_row:
+                return jsonify({"success": False, "message": "Request not found."}), 404
+            if request_row["status"] != "Pending":
+                return jsonify({
+                    "success": False,
+                    "message": "This request is no longer open for fulfillment."
+                }), 409
+            if request_row["subject_id"] != subject_id:
+                return jsonify({
+                    "success": False,
+                    "message": "The shared resource subject must match the request."
+                }), 400
+            if request_row["unit_id"] is None:
+                if unit_scope != "all":
+                    return jsonify({
+                        "success": False,
+                        "message": "The request is for all units; share an all-units resource."
+                    }), 400
+            elif unit_scope != "all" and request_row["unit_id"] != unit_id:
+                return jsonify({
+                    "success": False,
+                    "message": "The shared resource unit must match the request."
+                }), 400
+
         if file:
             if not file.filename or not file.filename.strip():
                 return jsonify({
@@ -801,8 +860,24 @@ def upload_resource():
                 res_desc
             )
         )
-        connection.commit()
         new_resource_id = cursor.lastrowid
+
+        if request_id is not None:
+            cursor.execute(
+                """
+                UPDATE requests
+                SET status = 'Fulfilled',
+                    fulfilled_by = %s,
+                    fulfilled_resource_id = %s
+                WHERE request_id = %s
+                  AND status = 'Pending'
+                """,
+                (uploaded_by, new_resource_id, request_id)
+            )
+            if cursor.rowcount != 1:
+                raise RequestFulfillmentConflict
+
+        connection.commit()
 
         created_resource = {
             "id": new_resource_id,
@@ -827,9 +902,27 @@ def upload_resource():
             "success": True,
             "message": "Resource uploaded and registered successfully",
             "filename": saved_filename,
-            "resource": created_resource
+            "resource": created_resource,
+            "request": ({
+                "id": request_id,
+                "status": "Fulfilled",
+                "fulfilled_by": uploaded_by,
+                "fulfilled_resource_id": new_resource_id,
+            } if request_id is not None else None)
         }), 201
 
+    except RequestFulfillmentConflict:
+        if connection:
+            connection.rollback()
+        if file_path and os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+            except OSError:
+                current_app.logger.exception("Unable to remove resource from failed request fulfillment")
+        return jsonify({
+            "success": False,
+            "message": "This request was fulfilled by another user before the resource could be linked."
+        }), 409
     except Exception:
         if connection:
             try:

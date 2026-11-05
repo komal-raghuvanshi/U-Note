@@ -2,11 +2,13 @@ import { useState, useEffect } from 'react'
 import { apiFetch } from '../api'
 import { formatSubjectOption, useAcademicOptions } from '../hooks/useAcademicOptions'
 
-function ShareResource({ onBack, user }) {
+function ShareResource({ onBack, user, requestId }) {
   const [submitted, setSubmitted] = useState(false)
   const [file, setFile] = useState(null)
   const [error, setError] = useState('')
   const [uploading, setUploading] = useState(false)
+  const [linkedRequest, setLinkedRequest] = useState(null)
+  const [loadingRequest, setLoadingRequest] = useState(Boolean(requestId))
 
   const [formData, setFormData] = useState({
     title: '',
@@ -29,6 +31,52 @@ function ShareResource({ onBack, user }) {
     semestersLoading,
   } = useAcademicOptions(formData.branch, formData.semester)
   const isYouTubeResource = formData.type.toLowerCase().includes('youtube')
+
+  useEffect(() => {
+    let ignore = false
+
+    async function loadRequest() {
+      if (!requestId) {
+        setLinkedRequest(null)
+        setLoadingRequest(false)
+        return
+      }
+      if (!user?.token) {
+        setLoadingRequest(false)
+        setError('Log in to share a resource for this request.')
+        return
+      }
+
+      setLoadingRequest(true)
+      try {
+        const response = await apiFetch(`/requests/${requestId}`, {}, user.token)
+        const data = await response.json()
+        if (!response.ok || !data.success) {
+          throw new Error(data.message || 'Unable to load this resource request.')
+        }
+        if (!ignore) {
+          const currentRequest = data.request
+          setLinkedRequest(currentRequest)
+          setFormData((previous) => ({
+            ...previous,
+            title: `Resource for ${currentRequest.subject}`,
+            description: currentRequest.description,
+            branch: currentRequest.branch,
+            semester: String(currentRequest.semester_num),
+            subject: currentRequest.subject,
+            unit: currentRequest.unit ? String(currentRequest.unit) : 'all',
+          }))
+        }
+      } catch (loadError) {
+        if (!ignore) setError(loadError.message || 'Unable to load this resource request.')
+      } finally {
+        if (!ignore) setLoadingRequest(false)
+      }
+    }
+
+    loadRequest()
+    return () => { ignore = true }
+  }, [requestId, user?.token])
 
   // Fetch units when subject changes
   useEffect(() => {
@@ -85,8 +133,13 @@ function ShareResource({ onBack, user }) {
     event.preventDefault()
     setError('')
 
-    if (!user?.id) {
+    if (!user?.id || !user?.token) {
       setError('Please log in before sharing a study resource.')
+      return
+    }
+
+    if (requestId && (!linkedRequest || linkedRequest.status !== 'Pending')) {
+      setError('This request is not available for fulfillment.')
       return
     }
 
@@ -105,6 +158,7 @@ function ShareResource({ onBack, user }) {
     data.append('subject', formData.subject)
     data.append('unit', formData.unit)
     data.append('type', formData.type)
+    if (requestId) data.append('request_id', requestId)
     if (youtubeUrl) data.append('youtube_url', youtubeUrl)
 
     try {
@@ -159,7 +213,22 @@ function ShareResource({ onBack, user }) {
             <div className="prototype-badge-box" style={{ backgroundColor: '#fffbeb', borderColor: '#fef3c7' }}>
               <span className="prototype-badge-pill" style={{ backgroundColor: '#d97706' }}>Notice</span>
               <p className="prototype-badge-text" style={{ color: '#92400e' }}>
-                You must be logged in with your student account to share resources.
+                You must be logged in to share resources.
+              </p>
+            </div>
+          )}
+
+          {requestId && (
+            <div className="prototype-badge-box" style={{ backgroundColor: '#eff6ff', borderColor: '#bfdbfe' }}>
+              <span className="prototype-badge-pill" style={{ backgroundColor: '#1d4ed8' }}>
+                {loadingRequest ? 'Loading Request' : linkedRequest?.status || 'Request'}
+              </span>
+              <p className="prototype-badge-text" style={{ color: '#1e40af' }}>
+                {loadingRequest
+                  ? 'Loading the request details to pre-fill the sharing form.'
+                  : linkedRequest
+                    ? `Sharing a resource for ${linkedRequest.subject} (${linkedRequest.branch}, Semester ${linkedRequest.semester_num}).`
+                    : 'Request details could not be loaded.'}
               </p>
             </div>
           )}
@@ -174,7 +243,10 @@ function ShareResource({ onBack, user }) {
               </p>
 
               <p className="success-note">
-                Your file and resource details have been successfully uploaded and saved to the database.
+                {requestId
+                  ? 'Your resource has been saved and linked to the request, which is now marked Fulfilled.'
+                  : 'Your file and resource details have been successfully uploaded and saved to the database.'}
+                {' '}
                 You can now view this resource on the Resources page or under My Shared Resources in your profile.
               </p>
 
@@ -184,29 +256,31 @@ function ShareResource({ onBack, user }) {
                   className="btn btn-primary"
                   onClick={onBack}
                 >
-                  Return to Home
+                  {requestId ? 'Return to Requests' : 'Return to Home'}
                 </button>
 
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  onClick={() => {
-                    setSubmitted(false)
-                    setFile(null)
-                    setError('')
-                    setFormData({
-                      title: '',
-                      description: '',
-                      branch: '',
-                      semester: '',
-                      subject: '',
-                      unit: '',
-                      type: ''
-                    })
-                  }}
-                >
-                  Share Another
-                </button>
+                {!requestId && (
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => {
+                      setSubmitted(false)
+                      setFile(null)
+                      setError('')
+                      setFormData({
+                        title: '',
+                        description: '',
+                        branch: '',
+                        semester: '',
+                        subject: '',
+                        unit: '',
+                        type: ''
+                      })
+                    }}
+                  >
+                    Share Another
+                  </button>
+                )}
               </div>
             </div>
           ) : (
@@ -402,7 +476,7 @@ function ShareResource({ onBack, user }) {
                 <button
                   type="submit"
                   className="btn btn-primary"
-                  disabled={uploading}
+                  disabled={uploading || loadingRequest || (requestId && linkedRequest?.status !== 'Pending')}
                 >
                   {uploading ? 'Uploading...' : 'Submit Resource'}
                 </button>

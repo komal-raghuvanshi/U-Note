@@ -145,6 +145,8 @@ CREATE TABLE IF NOT EXISTS requests (
     unit_id INT NULL,
     request_description TEXT NOT NULL,
     status VARCHAR(20) NOT NULL DEFAULT 'Pending',
+    fulfilled_by INT NULL,
+    fulfilled_resource_id INT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id)
         REFERENCES users(user_id),
@@ -152,6 +154,10 @@ CREATE TABLE IF NOT EXISTS requests (
         REFERENCES subjects(subject_id),
     FOREIGN KEY (unit_id)
         REFERENCES units(unit_id),
+    FOREIGN KEY (fulfilled_by)
+        REFERENCES users(user_id),
+    FOREIGN KEY (fulfilled_resource_id)
+        REFERENCES resources(resource_id) ON DELETE RESTRICT,
     CHECK (status IN ('Pending', 'Fulfilled', 'Rejected'))
 );
 

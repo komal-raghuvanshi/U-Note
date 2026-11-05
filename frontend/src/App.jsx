@@ -194,7 +194,13 @@ function App() {
         return <RequestsPage user={user} onNavigate={navigate} />
 
       case '/share-resource':
-        return <ShareResource onBack={() => navigate('/')} user={user} />
+        return (
+          <ShareResource
+            requestId={new URLSearchParams(window.location.search).get('request_id')}
+            onBack={() => navigate(new URLSearchParams(window.location.search).has('request_id') ? '/requests' : '/')}
+            user={user}
+          />
+        )
 
       case '/help':
         return <HelpPage onNavigate={navigate} />

@@ -11,6 +11,7 @@ requests_bp = Blueprint("requests", __name__)
 
 
 @requests_bp.route("/requests", methods=["GET"])
+@require_auth
 def get_requests():
     branch = request.args.get("branch")
     semester = request.args.get("semester")
@@ -22,6 +23,11 @@ def get_requests():
             req.request_id AS id,
             req.request_description AS description,
             req.status,
+            req.fulfilled_by,
+            fulfiller.name AS fulfilled_by_name,
+            req.fulfilled_resource_id,
+            fulfilled_resource.title AS fulfilled_resource_title,
+            fulfilled_resource.resource_url AS fulfilled_resource_url,
             req.created_at,
             u.user_id,
             u.name AS user_name,
@@ -40,6 +46,9 @@ def get_requests():
         JOIN branches b ON sem.branch_id = b.branch_id
         LEFT JOIN units un ON req.unit_id = un.unit_id
         LEFT JOIN subject_catalogue_metadata meta ON meta.subject_id = s.subject_id
+        LEFT JOIN users fulfiller ON req.fulfilled_by = fulfiller.user_id
+        LEFT JOIN resources fulfilled_resource
+            ON req.fulfilled_resource_id = fulfilled_resource.resource_id
     """
     conditions = []
     values = []
@@ -74,16 +83,15 @@ def get_requests():
         conditions.append("LOWER(req.status) = LOWER(%s)")
         values.append(status.strip())
 
-    if conditions:
-        query += " WHERE " + " AND ".join(conditions)
-
-    query += " ORDER BY req.request_id DESC"
-
     connection = None
     cursor = None
     try:
         connection = get_db_connection()
         cursor = connection.cursor(dictionary=True)
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+
+        query += " ORDER BY req.request_id DESC"
         cursor.execute(query, values)
         rows = cursor.fetchall()
 
@@ -234,6 +242,11 @@ def get_my_requests():
             req.request_id AS id,
             req.request_description AS description,
             req.status,
+            req.fulfilled_by,
+            fulfiller.name AS fulfilled_by_name,
+            req.fulfilled_resource_id,
+            fulfilled_resource.title AS fulfilled_resource_title,
+            fulfilled_resource.resource_url AS fulfilled_resource_url,
             req.created_at,
             u.user_id,
             u.name AS user_name,
@@ -252,6 +265,9 @@ def get_my_requests():
         JOIN branches b ON sem.branch_id = b.branch_id
         LEFT JOIN units un ON req.unit_id = un.unit_id
         LEFT JOIN subject_catalogue_metadata meta ON meta.subject_id = s.subject_id
+        LEFT JOIN users fulfiller ON req.fulfilled_by = fulfiller.user_id
+        LEFT JOIN resources fulfilled_resource
+            ON req.fulfilled_resource_id = fulfilled_resource.resource_id
         WHERE req.user_id = %s
         ORDER BY req.request_id DESC
         """, (g.user_id,))
@@ -282,7 +298,12 @@ def update_request_status(request_id):
         return jsonify({"success": False, "message": "Invalid request payload."}), 400
     new_status = data.get("status")
 
-    if new_status not in ("Pending", "Fulfilled", "Rejected"):
+    if new_status == "Fulfilled":
+        return jsonify({
+            "success": False,
+            "message": "Requests can only be fulfilled by sharing a linked resource."
+        }), 409
+    if new_status not in ("Pending", "Rejected"):
         return jsonify({"success": False, "message": "Invalid status value."}), 400
 
     connection = None
@@ -292,20 +313,43 @@ def update_request_status(request_id):
         cursor = connection.cursor(dictionary=True)
         cursor.execute(
             """
-            SELECT req.request_id, req.user_id, actor.role AS actor_role
+            SELECT req.request_id, req.user_id, req.status
             FROM requests req
-            JOIN users actor ON actor.user_id = %s
             WHERE req.request_id = %s
             """,
-            (g.user_id, request_id)
+            (request_id,)
         )
         req = cursor.fetchone()
         if not req:
             return jsonify({"success": False, "message": "Request not found."}), 404
-        if req["user_id"] != g.user_id and req["actor_role"] != "teacher":
+        if req["user_id"] != g.user_id:
             return jsonify({"success": False, "message": "You are not authorized to update this request."}), 403
+        if req["status"] == "Fulfilled":
+            return jsonify({
+                "success": False,
+                "message": "A fulfilled request cannot be manually changed."
+            }), 409
+        if req["status"] == new_status:
+            return jsonify({
+                "success": True,
+                "message": f"Request status is already '{new_status}'."
+            }), 200
 
-        cursor.execute("UPDATE requests SET status = %s WHERE request_id = %s", (new_status, request_id))
+        cursor.execute(
+            """
+            UPDATE requests
+            SET status = %s
+            WHERE request_id = %s
+              AND status <> 'Fulfilled'
+            """,
+            (new_status, request_id)
+        )
+        if cursor.rowcount != 1:
+            connection.rollback()
+            return jsonify({
+                "success": False,
+                "message": "The request status changed before this update could be saved."
+            }), 409
         connection.commit()
 
         return jsonify({
@@ -318,6 +362,60 @@ def update_request_status(request_id):
             connection.rollback()
         current_app.logger.exception("Request status update failed")
         return jsonify({"success": False, "message": "Unable to update the request status."}), 500
+    finally:
+        if cursor:
+            cursor.close()
+        if connection:
+            connection.close()
+
+
+@requests_bp.route("/requests/<int:request_id>", methods=["GET"])
+@require_auth
+def get_request(request_id):
+    connection = None
+    cursor = None
+    try:
+        connection = get_db_connection()
+        cursor = connection.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT
+                req.request_id AS id,
+                req.request_description AS description,
+                req.status,
+                req.user_id,
+                req.unit_id,
+                req.fulfilled_by,
+                fulfiller.name AS fulfilled_by_name,
+                req.fulfilled_resource_id,
+                fulfilled_resource.title AS fulfilled_resource_title,
+                fulfilled_resource.resource_url AS fulfilled_resource_url,
+                s.subject_id,
+                s.subject_name AS subject,
+                COALESCE(meta.catalogue_code, s.subject_code) AS subject_code,
+                sem.semester_name AS semester,
+                b.branch_name AS branch,
+                un.unit_number AS unit,
+                un.unit_name AS unit_name
+            FROM requests req
+            JOIN subjects s ON req.subject_id = s.subject_id
+            JOIN semesters sem ON s.semester_id = sem.semester_id
+            JOIN branches b ON sem.branch_id = b.branch_id
+            LEFT JOIN units un ON req.unit_id = un.unit_id
+            LEFT JOIN subject_catalogue_metadata meta ON meta.subject_id = s.subject_id
+            LEFT JOIN users fulfiller ON req.fulfilled_by = fulfiller.user_id
+            LEFT JOIN resources fulfilled_resource
+                ON req.fulfilled_resource_id = fulfilled_resource.resource_id
+            WHERE req.request_id = %s
+        """, (request_id,))
+        row = cursor.fetchone()
+        if not row:
+            return jsonify({"success": False, "message": "Request not found."}), 404
+        if row.get("semester"):
+            row["semester_num"] = _semester_number(row["semester"])
+        return jsonify({"success": True, "request": row}), 200
+    except Exception:
+        current_app.logger.exception("Failed to fetch resource request details")
+        return jsonify({"success": False, "message": "Unable to fetch request details."}), 500
     finally:
         if cursor:
             cursor.close()
