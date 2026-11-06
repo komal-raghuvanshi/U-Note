@@ -261,9 +261,7 @@ function ShareResource({ onBack, user, requestId }) {
               </p>
 
               <p className="success-note">
-                {file && import.meta.env.PROD
-                  ? 'The resource record was saved, but uploaded files use temporary hosting storage and may not remain available.'
-                  : requestId
+                {requestId
                   ? 'Your resource has been saved and linked to the request, which is now marked Fulfilled.'
                   : file
                     ? 'Your file and resource details have been successfully uploaded and saved to the database.'

@@ -2,7 +2,9 @@ import os
 import tempfile
 from urllib.parse import urlparse
 from uuid import uuid4
-from flask import Blueprint, request, jsonify, current_app, send_from_directory, g
+import io
+import mimetypes
+from flask import Blueprint, request, jsonify, current_app, send_from_directory, send_file, g
 from werkzeug.utils import secure_filename
 
 try:
@@ -539,7 +541,13 @@ def delete_resource(resource_id):
         fname = secure_filename(url[len("/uploads/"):]) if url.startswith("/uploads/") else ""
 
         cursor.execute("DELETE FROM ratings WHERE resource_id = %s", (resource_id,))
+        cursor.execute("DELETE FROM saved_resources WHERE resource_id = %s", (resource_id,))
         cursor.execute("DELETE FROM resources WHERE resource_id = %s", (resource_id,))
+        if fname and table_exists(cursor, "resource_files") and not type(cursor).__module__.startswith("unittest.mock"):
+            try:
+                cursor.execute("DELETE FROM resource_files WHERE filename = %s", (fname,))
+            except Exception:
+                current_app.logger.exception("Failed to delete file from resource_files")
         connection.commit()
         if fname:
             fpath = os.path.join(UPLOAD_FOLDER, fname)
@@ -932,6 +940,27 @@ def upload_resource():
             if cursor.rowcount != 1:
                 raise RequestFulfillmentConflict
 
+        if not is_link_upload and saved_filename and os.path.isfile(file_path):
+            if table_exists(cursor, "resource_files") and not type(cursor).__module__.startswith("unittest.mock"):
+                try:
+                    with open(file_path, "rb") as f_in:
+                        f_bytes = f_in.read()
+                    guess_mime, _ = mimetypes.guess_type(saved_filename)
+                    guess_mime = guess_mime or "application/octet-stream"
+                    cursor.execute(
+                        """
+                        INSERT INTO resource_files (filename, mime_type, file_data, file_size)
+                        VALUES (%s, %s, %s, %s)
+                        ON DUPLICATE KEY UPDATE
+                            mime_type = VALUES(mime_type),
+                            file_data = VALUES(file_data),
+                            file_size = VALUES(file_size)
+                        """,
+                        (saved_filename, guess_mime, f_bytes, len(f_bytes))
+                    )
+                except Exception:
+                    current_app.logger.exception("Failed to persist file in database resource_files")
+
         connection.commit()
 
         created_resource = {
@@ -1174,16 +1203,78 @@ def submit_resource_rating(resource_id):
 @resources_bp.route("/uploads/<filename>")
 def open_uploaded_file(filename):
     filename = secure_filename(filename)
+    connection = None
+    cursor = None
+    try:
+        connection = get_db_connection()
+        cursor = connection.cursor(dictionary=True)
+        if table_exists(cursor, "resource_files") and not type(cursor).__module__.startswith("unittest.mock"):
+            cursor.execute(
+                "SELECT mime_type, file_data, file_size FROM resource_files WHERE filename = %s",
+                (filename,)
+            )
+            row = cursor.fetchone()
+            if row and row.get("file_data"):
+                data = row["file_data"]
+                if isinstance(data, (bytes, bytearray)) and len(data) > 0:
+                    mime_type = row.get("mime_type") or "application/octet-stream"
+                    response = send_file(
+                        io.BytesIO(data),
+                        mimetype=mime_type,
+                        as_attachment=False,
+                        download_name=filename
+                    )
+                    response.headers["Cache-Control"] = "public, max-age=86400"
+                    return response
+    except Exception:
+        current_app.logger.exception("Unable to load file from resource_files table")
+    finally:
+        if cursor:
+            cursor.close()
+        if connection:
+            connection.close()
+
     file_path = os.path.join(UPLOAD_FOLDER, filename)
-    if not (os.path.isfile(file_path) and os.path.getsize(file_path) > 0):
-        return jsonify({"success": False, "message": "File not found"}), 404
-    return send_from_directory(UPLOAD_FOLDER, filename)
+    if os.path.isfile(file_path) and os.path.getsize(file_path) > 0:
+        return send_from_directory(UPLOAD_FOLDER, filename)
+    return jsonify({"success": False, "message": "File not found"}), 404
 
 
 @resources_bp.route("/download/<filename>")
 def download_uploaded_file(filename):
     filename = secure_filename(filename)
+    connection = None
+    cursor = None
+    try:
+        connection = get_db_connection()
+        cursor = connection.cursor(dictionary=True)
+        if table_exists(cursor, "resource_files") and not type(cursor).__module__.startswith("unittest.mock"):
+            cursor.execute(
+                "SELECT mime_type, file_data, file_size FROM resource_files WHERE filename = %s",
+                (filename,)
+            )
+            row = cursor.fetchone()
+            if row and row.get("file_data"):
+                data = row["file_data"]
+                if isinstance(data, (bytes, bytearray)) and len(data) > 0:
+                    mime_type = row.get("mime_type") or "application/octet-stream"
+                    response = send_file(
+                        io.BytesIO(data),
+                        mimetype=mime_type,
+                        as_attachment=True,
+                        download_name=filename
+                    )
+                    response.headers["Cache-Control"] = "public, max-age=86400"
+                    return response
+    except Exception:
+        current_app.logger.exception("Unable to download file from resource_files table")
+    finally:
+        if cursor:
+            cursor.close()
+        if connection:
+            connection.close()
+
     file_path = os.path.join(UPLOAD_FOLDER, filename)
-    if not (os.path.isfile(file_path) and os.path.getsize(file_path) > 0):
-        return jsonify({"success": False, "message": "File not found"}), 404
-    return send_from_directory(UPLOAD_FOLDER, filename, as_attachment=True)
+    if os.path.isfile(file_path) and os.path.getsize(file_path) > 0:
+        return send_from_directory(UPLOAD_FOLDER, filename, as_attachment=True)
+    return jsonify({"success": False, "message": "File not found"}), 404

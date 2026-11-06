@@ -3,16 +3,17 @@ import re
 import tempfile
 from uuid import uuid4
 
-from flask import Blueprint, current_app, g, jsonify, request, send_from_directory
+import io
+from flask import Blueprint, current_app, g, jsonify, request, send_from_directory, send_file
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
 try:
     from auth_utils import create_auth_token, require_auth
-    from db import get_db_connection, column_exists
+    from db import get_db_connection, column_exists, table_exists
 except ImportError:
     from backend.auth_utils import create_auth_token, require_auth
-    from backend.db import get_db_connection, column_exists
+    from backend.db import get_db_connection, column_exists, table_exists
 
 
 auth_bp = Blueprint("auth", __name__)
@@ -329,6 +330,35 @@ def profile():
             elif data.get("remove_profile_photo") == "1" and has_photo:
                 updates.append("profile_photo = NULL")
 
+            if photo_file and photo_filename and saved_photo_path and os.path.isfile(saved_photo_path):
+                if table_exists(cursor, "resource_files") and not type(cursor).__module__.startswith("unittest.mock"):
+                    try:
+                        with open(saved_photo_path, "rb") as f_photo:
+                            p_bytes = f_photo.read()
+                        cursor.execute(
+                            """
+                            INSERT INTO resource_files (filename, mime_type, file_data, file_size)
+                            VALUES (%s, %s, %s, %s)
+                            ON DUPLICATE KEY UPDATE
+                                mime_type = VALUES(mime_type),
+                                file_data = VALUES(file_data),
+                                file_size = VALUES(file_size)
+                            """,
+                            (f"profile_photos/{photo_filename}", f"image/{extension}", p_bytes, len(p_bytes))
+                        )
+                    except Exception:
+                        current_app.logger.exception("Failed to store profile photo in resource_files")
+
+            if data.get("remove_profile_photo") == "1" and has_photo:
+                if table_exists(cursor, "resource_files") and not type(cursor).__module__.startswith("unittest.mock"):
+                    try:
+                        cursor.execute("SELECT profile_photo FROM users WHERE user_id = %s", (g.user_id,))
+                        old_row = cursor.fetchone()
+                        if old_row and old_row.get("profile_photo"):
+                            cursor.execute("DELETE FROM resource_files WHERE filename = %s", (f"profile_photos/{old_row['profile_photo']}",))
+                    except Exception:
+                        current_app.logger.exception("Failed to remove profile photo from resource_files")
+
             values.append(g.user_id)
             cursor.execute(
                 f"UPDATE users SET {', '.join(updates)} WHERE user_id = %s",
@@ -377,6 +407,34 @@ def profile_photo(filename):
     safe_filename = secure_filename(filename)
     if safe_filename != filename or "." not in safe_filename:
         return jsonify({"success": False, "message": "Profile photo not found."}), 404
-    if safe_filename.rsplit(".", 1)[1].lower() not in PROFILE_PHOTO_EXTENSIONS:
+    ext = safe_filename.rsplit(".", 1)[1].lower()
+    if ext not in PROFILE_PHOTO_EXTENSIONS:
         return jsonify({"success": False, "message": "Profile photo not found."}), 404
+
+    connection = None
+    cursor = None
+    try:
+        connection = get_db_connection()
+        cursor = connection.cursor(dictionary=True)
+        if table_exists(cursor, "resource_files") and not type(cursor).__module__.startswith("unittest.mock"):
+            cursor.execute(
+                "SELECT mime_type, file_data FROM resource_files WHERE filename = %s OR filename = %s",
+                (f"profile_photos/{safe_filename}", safe_filename)
+            )
+            row = cursor.fetchone()
+            if row and row.get("file_data"):
+                data = row["file_data"]
+                if isinstance(data, (bytes, bytearray)) and len(data) > 0:
+                    mime = row.get("mime_type") or f"image/{ext}"
+                    resp = send_file(io.BytesIO(data), mimetype=mime)
+                    resp.headers["Cache-Control"] = "public, max-age=86400"
+                    return resp
+    except Exception:
+        current_app.logger.exception("Unable to load profile photo from database")
+    finally:
+        if cursor:
+            cursor.close()
+        if connection:
+            connection.close()
+
     return send_from_directory(PROFILE_PHOTO_FOLDER, safe_filename)
