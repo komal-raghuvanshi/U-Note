@@ -96,7 +96,8 @@ function Navbar({ onNavigate, currentPath = '/', user, onOpenProfile, onLogout }
           className="nav-logo"
           onClick={(e) => handleLinkClick(e, '/')}
         >
-          U-NOTE
+          <img src="/favicon.png" alt="U-NOTE Logo" className="nav-logo-icon" />
+          <span className="nav-logo-text">U-NOTE</span>
         </a>
 
         <button

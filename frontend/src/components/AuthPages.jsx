@@ -92,6 +92,9 @@ function AuthPages({ mode = 'login', onNavigate, onLoginSuccess }) {
       <div className="section-container">
         <div className="auth-form-wrapper">
           <div className="auth-header">
+            <div className="auth-brand">
+              <img src="/logo.png" alt="U-NOTE Logo" className="auth-brand-logo" />
+            </div>
             <h1 className="auth-title">
               {isLogin ? 'Welcome back' : 'Create your U-NOTE account'}
             </h1>
