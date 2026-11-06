@@ -2,6 +2,11 @@ import { useState, useEffect } from 'react'
 import { apiFetch } from '../api'
 import { useAcademicOptions } from '../hooks/useAcademicOptions'
 
+const MAX_RESOURCE_FILE_SIZE = import.meta.env.PROD
+  ? 4 * 1024 * 1024
+  : 25 * 1024 * 1024
+const MAX_RESOURCE_FILE_SIZE_MB = MAX_RESOURCE_FILE_SIZE / (1024 * 1024)
+
 function ShareResource({ onBack, user, requestId }) {
   const [submitted, setSubmitted] = useState(false)
   const [file, setFile] = useState(null)
@@ -129,6 +134,19 @@ function ShareResource({ onBack, user, requestId }) {
     }))
   }
 
+  const handleFileChange = (event) => {
+    const selectedFile = event.target.files[0] || null
+    if (selectedFile && selectedFile.size > MAX_RESOURCE_FILE_SIZE) {
+      setFile(null)
+      setError(`Choose a file no larger than ${MAX_RESOURCE_FILE_SIZE_MB} MB.`)
+      event.target.value = ''
+      return
+    }
+
+    setFile(selectedFile)
+    setError('')
+  }
+
   const handleSubmit = async (event) => {
     event.preventDefault()
     setError('')
@@ -243,9 +261,13 @@ function ShareResource({ onBack, user, requestId }) {
               </p>
 
               <p className="success-note">
-                {requestId
+                {file && import.meta.env.PROD
+                  ? 'The resource record was saved, but uploaded files use temporary hosting storage and may not remain available.'
+                  : requestId
                   ? 'Your resource has been saved and linked to the request, which is now marked Fulfilled.'
-                  : 'Your file and resource details have been successfully uploaded and saved to the database.'}
+                  : file
+                    ? 'Your file and resource details have been successfully uploaded and saved to the database.'
+                    : 'Your YouTube resource details have been saved to the database.'}
                 {' '}
                 You can now view this resource on the Resources page or under My Shared Resources in your profile.
               </p>
@@ -462,9 +484,13 @@ function ShareResource({ onBack, user, requestId }) {
                   name="file"
                   className="form-control file-input"
                   accept=".pdf,.png,.jpg,.jpeg"
-                  onChange={(e) => setFile(e.target.files[0] || null)}
+                  onChange={handleFileChange}
                   required={!isYouTubeResource}
                 />
+                <p className="success-note">
+                  Maximum file size: {MAX_RESOURCE_FILE_SIZE_MB} MB.
+                  {import.meta.env.PROD && ' Hosted uploads use temporary storage and may not persist.'}
+                </p>
               </div>
 
               {error && (

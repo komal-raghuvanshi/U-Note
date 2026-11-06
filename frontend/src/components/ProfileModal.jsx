@@ -2,6 +2,11 @@ import { useState, useEffect } from 'react'
 import { apiFetch, apiUrl } from '../api'
 import { useAcademicOptions } from '../hooks/useAcademicOptions'
 
+const MAX_PROFILE_PHOTO_SIZE = import.meta.env.PROD
+  ? 4 * 1024 * 1024
+  : 5 * 1024 * 1024
+const MAX_PROFILE_PHOTO_SIZE_MB = MAX_PROFILE_PHOTO_SIZE / (1024 * 1024)
+
 const BUILT_IN_AVATARS = [
   { id: 'avatar1', label: 'Tech Student', src: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="50" fill="%232563eb"/><circle cx="50" cy="40" r="20" fill="%23ffd1b3"/><path d="M50 20c-14 0-22 8-22 18 0 4 2 8 5 10 1-5 4-8 10-10 4 1 10 1 14 0 6 2 9 5 10 10 3-2 5-6 5-10 0-10-8-18-22-18z" fill="%23374151"/><circle cx="43" cy="42" r="6" fill="none" stroke="%231e293b" stroke-width="2"/><circle cx="57" cy="42" r="6" fill="none" stroke="%231e293b" stroke-width="2"/><path d="M49 42h2" stroke="%231e293b" stroke-width="2"/><path d="M45 52c3 2 7 2 10 0" fill="none" stroke="%23e11d48" stroke-width="2" stroke-linecap="round"/><path d="M22 88c5-16 16-24 28-24s23 8 28 24" fill="%231e40af"/></svg>' },
   { id: 'avatar2', label: 'Audio Scholar', src: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="50" fill="%23059669"/><circle cx="50" cy="42" r="20" fill="%23fed7aa"/><path d="M50 22c-12 0-20 7-20 16 0 4 3 8 5 9 1-4 4-7 9-8 4 1 8 1 12 0 5 1 8 4 9 8 2-1 5-5 5-9 0-9-8-16-20-16z" fill="%2392400e"/><path d="M26 40c0-14 10-24 24-24s24 10 24 24" fill="none" stroke="%231f2937" stroke-width="4"/><rect x="23" y="36" width="7" height="15" rx="3" fill="%23111827"/><rect x="70" y="36" width="7" height="15" rx="3" fill="%23111827"/><circle cx="43" cy="43" r="2.5" fill="%231f2937"/><circle cx="57" cy="43" r="2.5" fill="%231f2937"/><path d="M46 52c2 1 6 1 8 0" fill="none" stroke="%23ea580c" stroke-width="2" stroke-linecap="round"/><path d="M20 90c6-18 17-26 30-26s24 8 30 26" fill="%23047857"/></svg>' },
@@ -119,8 +124,12 @@ function ProfileModal({ user, initialTab = 'profile', onClose, onLogout, onNavig
     const file = e.target.files[0]
     if (file) {
       const extension = file.name.split('.').pop()?.toLowerCase()
-      if (!['jpg', 'jpeg', 'png', 'webp'].includes(extension) || file.size > 5 * 1024 * 1024) {
-        setProfileError('Choose a JPG, PNG, or WEBP image no larger than 5 MB.')
+      if (!['jpg', 'jpeg', 'png', 'webp'].includes(extension) || file.size > MAX_PROFILE_PHOTO_SIZE) {
+        setProfilePhotoFile(null)
+        setEditAvatar(user.avatar || '')
+        setProfileError(
+          `Choose a JPG, PNG, or WEBP image no larger than ${MAX_PROFILE_PHOTO_SIZE_MB} MB.`
+        )
         e.target.value = ''
         return
       }
@@ -309,6 +318,10 @@ function ProfileModal({ user, initialTab = 'profile', onClose, onLogout, onNavig
                     className="form-control file-input"
                     onChange={handleFileChange}
                   />
+                  <p className="success-note">
+                    Maximum image size: {MAX_PROFILE_PHOTO_SIZE_MB} MB.
+                    {import.meta.env.PROD && ' Hosted profile photos use temporary storage and may not persist.'}
+                  </p>
                 </div>
               </div>
 

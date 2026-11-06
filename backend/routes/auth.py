@@ -18,7 +18,10 @@ except ImportError:
 auth_bp = Blueprint("auth", __name__)
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 PROFILE_PHOTO_EXTENSIONS = {"jpg", "jpeg", "png", "webp"}
-MAX_PROFILE_PHOTO_SIZE = 5 * 1024 * 1024
+MAX_PROFILE_PHOTO_SIZE = (
+    4 * 1024 * 1024 if os.environ.get("VERCEL") else 5 * 1024 * 1024
+)
+MAX_PROFILE_PHOTO_SIZE_MB = MAX_PROFILE_PHOTO_SIZE // (1024 * 1024)
 if os.environ.get("VERCEL"):
     PROFILE_PHOTO_FOLDER = os.path.join(tempfile.gettempdir(), "unote_profile_photos")
 else:
@@ -313,7 +316,10 @@ def profile():
                     saved_photo_path = None
                     return jsonify({
                         "success": False,
-                        "message": "Profile photo must be non-empty and no larger than 5 MB."
+                        "message": (
+                            "Profile photo must be non-empty and no larger than "
+                            f"{MAX_PROFILE_PHOTO_SIZE_MB} MB."
+                        )
                     }), 400
                 updates.append("profile_photo = %s")
                 values.append(photo_filename)

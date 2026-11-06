@@ -14,7 +14,10 @@ except ImportError:
 
 resources_bp = Blueprint("resources", __name__)
 ALLOWED_EXTENSIONS = {"pdf", "png", "jpg", "jpeg"}
-MAX_FILE_SIZE = 25 * 1024 * 1024  # 25 MB
+MAX_FILE_SIZE = (
+    4 * 1024 * 1024 if os.environ.get("VERCEL") else 25 * 1024 * 1024
+)
+MAX_FILE_SIZE_MB = MAX_FILE_SIZE // (1024 * 1024)
 
 
 class RequestFulfillmentConflict(Exception):
@@ -831,7 +834,7 @@ def upload_resource():
                     os.remove(file_path)
                 return jsonify({
                     "success": False,
-                    "message": "File size exceeds the 25MB limit"
+                    "message": f"File size exceeds the {MAX_FILE_SIZE_MB} MB limit"
                 }), 400
 
             final_resource_url = f"/uploads/{saved_filename}"

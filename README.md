@@ -49,7 +49,7 @@ From the repository root, install `backend/requirements.txt` in a Python environ
 python backend\app.py
 ```
 
-Uploaded files are stored in `backend/uploads` and are limited to 25 MB. Back up this folder along with the MySQL database.
+Local resource uploads are stored in `backend/uploads` and are limited to 25 MB; local profile photos are limited to 5 MB. On Vercel, both upload types are limited to 4 MB to stay within the function request-body cap, but files and profile photos are stored in temporary storage and may not persist. Configure a persistent object-storage provider before relying on hosted uploads.
 
 ### Frontend
 

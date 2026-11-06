@@ -7,6 +7,35 @@ import unittest
 
 
 class VercelImportTests(unittest.TestCase):
+    def test_local_upload_limits_remain_unchanged(self):
+        backend_directory = Path(__file__).resolve().parents[1]
+        script = """
+import app
+from routes import auth, resources
+
+assert app.app.config["MAX_CONTENT_LENGTH"] == 26 * 1024 * 1024
+assert resources.MAX_FILE_SIZE == 25 * 1024 * 1024
+assert auth.MAX_PROFILE_PHOTO_SIZE == 5 * 1024 * 1024
+"""
+        environment = os.environ.copy()
+        environment.pop("VERCEL", None)
+        environment["PYTHONDONTWRITEBYTECODE"] = "1"
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=backend_directory,
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+
+        self.assertEqual(
+            result.returncode,
+            0,
+            "Local upload limits changed unexpectedly.",
+        )
+
     def test_app_import_does_not_create_directories(self):
         backend_directory = Path(__file__).resolve().parents[1]
         script = """
@@ -37,6 +66,9 @@ temp_directory = tempfile.gettempdir()
 assert os.path.commonpath([auth.PROFILE_PHOTO_FOLDER, temp_directory]) == temp_directory
 assert os.path.commonpath([resources.UPLOAD_FOLDER, temp_directory]) == temp_directory
 assert app.app.config["SECRET_KEY"] == os.environ["UNOTE_SECRET_KEY"]
+assert app.app.config["MAX_CONTENT_LENGTH"] == 4_500_000
+assert resources.MAX_FILE_SIZE == 4 * 1024 * 1024
+assert auth.MAX_PROFILE_PHOTO_SIZE == 4 * 1024 * 1024
 
 import db
 from unittest.mock import MagicMock, patch

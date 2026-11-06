@@ -14,7 +14,9 @@ from routes.contact import contact_bp
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.getenv("UNOTE_SECRET_KEY")
-app.config["MAX_CONTENT_LENGTH"] = 26 * 1024 * 1024
+app.config["MAX_CONTENT_LENGTH"] = (
+    4_500_000 if os.getenv("VERCEL") else 26 * 1024 * 1024
+)
 allowed_origins = os.getenv(
     "UNOTE_CORS_ORIGINS",
     "http://localhost:5173,http://127.0.0.1:5173"
