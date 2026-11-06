@@ -2,58 +2,86 @@
 -- U-NOTE: Production Database Migration - PHASE B (DML Data Synchronization)
 -- Target: Aiven MySQL (defaultdb)
 -- Wrapped in an atomic transaction. Stops and rolls back on any error.
--- Automatically populates `migration_ledger` for 100% auditable rollbacks.
+-- Strict Ledger Rule: Records ONLY rows actually inserted by this migration.
+-- Pre-existing records are filtered out using snapshot tables and never logged.
 -- ====================================================================
 
 START TRANSACTION;
 
 -- --------------------------------------------------------------------
--- 1. Seed 'DS' Branch
+-- STEP 0: Capture Pre-Migration Snapshots (Ensures 0 Pre-Existing Records in Ledger)
+-- --------------------------------------------------------------------
+CREATE TEMPORARY TABLE temp_existing_branches AS
+SELECT branch_name FROM branches;
+
+CREATE TEMPORARY TABLE temp_existing_semesters AS
+SELECT CONCAT(b.branch_name, ':', s.semester_name) AS natural_key
+FROM semesters s JOIN branches b ON s.branch_id = b.branch_id;
+
+CREATE TEMPORARY TABLE temp_existing_subjects AS
+SELECT CONCAT(b.branch_name, ':', sem.semester_name, ':', s.subject_code) AS natural_key
+FROM subjects s
+JOIN semesters sem ON s.semester_id = sem.semester_id
+JOIN branches b ON sem.branch_id = b.branch_id;
+
+CREATE TEMPORARY TABLE temp_existing_metadata AS
+SELECT catalogue_code FROM subject_catalogue_metadata;
+
+CREATE TEMPORARY TABLE temp_existing_units AS
+SELECT CONCAT(s.subject_code, ':Unit ', u.unit_number) AS natural_key
+FROM units u JOIN subjects s ON u.subject_id = s.subject_id;
+
+CREATE TEMPORARY TABLE temp_existing_users AS
+SELECT email FROM users;
+
+CREATE TEMPORARY TABLE temp_existing_resources AS
+SELECT resource_url FROM resources;
+
+CREATE TEMPORARY TABLE temp_existing_requests AS
+SELECT CONCAT(u.email, ':', r.request_description) AS natural_key
+FROM requests r JOIN users u ON r.user_id = u.user_id;
+
+CREATE TEMPORARY TABLE temp_existing_saved AS
+SELECT CONCAT(u.email, ':', r.resource_url) AS natural_key
+FROM saved_resources sr JOIN users u ON sr.user_id = u.user_id JOIN resources r ON sr.resource_id = r.resource_id;
+
+-- --------------------------------------------------------------------
+-- STEP 1: Seed 'DS' Branch
 -- --------------------------------------------------------------------
 INSERT INTO branches (branch_name)
 SELECT 'DS'
 WHERE NOT EXISTS (SELECT 1 FROM branches WHERE branch_name = 'DS');
 
-INSERT IGNORE INTO migration_ledger (migration_name, table_name, entity_natural_key)
-VALUES ('sync_local_to_cloud', 'branches', 'DS');
+-- Log ONLY if actually inserted by this migration
+INSERT INTO migration_ledger (migration_name, table_name, entity_natural_key)
+SELECT 'sync_local_to_cloud', 'branches', 'DS'
+FROM branches b
+WHERE b.branch_name = 'DS'
+  AND 'DS' NOT IN (SELECT branch_name FROM temp_existing_branches);
 
 -- --------------------------------------------------------------------
--- 2. Seed 8 Semesters for 'DS' Branch
+-- STEP 2: Seed 8 Semesters for 'DS' Branch
 -- --------------------------------------------------------------------
 INSERT INTO semesters (semester_name, branch_id)
 SELECT seed.semester_name, b.branch_id
 FROM (
-    SELECT 'Semester 1' AS semester_name UNION ALL
-    SELECT 'Semester 2' UNION ALL
-    SELECT 'Semester 3' UNION ALL
-    SELECT 'Semester 4' UNION ALL
-    SELECT 'Semester 5' UNION ALL
-    SELECT 'Semester 6' UNION ALL
-    SELECT 'Semester 7' UNION ALL
-    SELECT 'Semester 8'
+    SELECT 'Semester 1' AS semester_name UNION ALL SELECT 'Semester 2' UNION ALL SELECT 'Semester 3' UNION ALL SELECT 'Semester 4' UNION ALL
+    SELECT 'Semester 5' UNION ALL SELECT 'Semester 6' UNION ALL SELECT 'Semester 7' UNION ALL SELECT 'Semester 8'
 ) AS seed
 JOIN branches b ON b.branch_name = 'DS'
 WHERE NOT EXISTS (
-    SELECT 1 FROM semesters existing
-    WHERE existing.branch_id = b.branch_id AND existing.semester_name = seed.semester_name
+    SELECT 1 FROM semesters existing WHERE existing.branch_id = b.branch_id AND existing.semester_name = seed.semester_name
 );
 
-INSERT IGNORE INTO migration_ledger (migration_name, table_name, entity_natural_key)
-SELECT 'sync_local_to_cloud', 'semesters', CONCAT('DS:', seed.semester_name)
-FROM (
-    SELECT 'Semester 1' AS semester_name UNION ALL
-    SELECT 'Semester 2' UNION ALL
-    SELECT 'Semester 3' UNION ALL
-    SELECT 'Semester 4' UNION ALL
-    SELECT 'Semester 5' UNION ALL
-    SELECT 'Semester 6' UNION ALL
-    SELECT 'Semester 7' UNION ALL
-    SELECT 'Semester 8'
-) AS seed;
+-- Log ONLY if actually inserted by this migration
+INSERT INTO migration_ledger (migration_name, table_name, entity_natural_key)
+SELECT 'sync_local_to_cloud', 'semesters', CONCAT('DS:', s.semester_name)
+FROM semesters s
+JOIN branches b ON s.branch_id = b.branch_id AND b.branch_name = 'DS'
+WHERE CONCAT('DS:', s.semester_name) NOT IN (SELECT natural_key FROM temp_existing_semesters);
 
 -- --------------------------------------------------------------------
--- 3. Seed 44 Curriculum Subjects for AIML
--- Note: AL-403 and AL-405 map to baseline AIML403 & AIML402 and are not re-inserted into subjects.
+-- STEP 3: Seed 44 Curriculum Subjects for AIML
 -- --------------------------------------------------------------------
 INSERT INTO subjects (subject_code, subject_name, semester_id)
 SELECT seed.subject_code, seed.subject_name, sem.semester_id
@@ -114,42 +142,25 @@ FROM (
 JOIN branches b ON b.branch_name = 'AIML'
 JOIN semesters sem ON sem.branch_id = b.branch_id AND sem.semester_name = CONCAT('Semester ', seed.semester_number)
 WHERE NOT EXISTS (
-    SELECT 1 FROM subjects existing
-    WHERE existing.semester_id = sem.semester_id
+    SELECT 1 FROM subjects existing WHERE existing.semester_id = sem.semester_id
       AND (existing.subject_code = seed.subject_code OR existing.subject_name = seed.subject_name)
 );
 
-INSERT IGNORE INTO migration_ledger (migration_name, table_name, entity_natural_key)
+-- Log ONLY if actually inserted by this migration
+INSERT INTO migration_ledger (migration_name, table_name, entity_natural_key)
 SELECT 'sync_local_to_cloud', 'subjects', CONCAT('AIML:', sem.semester_name, ':', s.subject_code)
 FROM subjects s
 JOIN semesters sem ON s.semester_id = sem.semester_id
 JOIN branches b ON sem.branch_id = b.branch_id AND b.branch_name = 'AIML'
-WHERE s.subject_code IN (
-    'BT-201', 'BT-102', 'BT-203', 'BT-204', 'BT-205',
-    'BT-101', 'BT-202', 'BT-103', 'BT-104', 'BT-105',
-    'AL-301', 'AL-302', 'AL-303', 'AL-304', 'AL-305',
-    'AL-401', 'AL-402', 'AL-404',
-    'AL-501', 'AL-502', 'AL-503(A)', 'AL-504(B)',
-    'AL-601', 'AL-602', 'AL-603(A)', 'AL-604(A)',
-    'AL-701', 'AL-702(A)', 'AL-702(B)', 'AL-702(C)', 'AL-702(D)',
-    'AL-703(A)', 'AL-703(B)', 'AL-703(C)', 'AL-703(D)',
-    'AL-801', 'AL-802(A)', 'AL-802(B)', 'AL-802(C)', 'AL-802(D)',
-    'AL-803(A)', 'AL-803(B)', 'AL-803(C)', 'AL-803(D)'
-);
+WHERE CONCAT('AIML:', sem.semester_name, ':', s.subject_code) NOT IN (SELECT natural_key FROM temp_existing_subjects);
 
 -- --------------------------------------------------------------------
--- 4. Seed all 47 Subject Catalogue Metadata Rows
--- (Includes AIML401 marked is_selectable=0 and AL-403/AL-405 mapped to baseline subjects)
+-- STEP 4: Seed 47 Subject Catalogue Metadata Rows
 -- --------------------------------------------------------------------
 INSERT INTO subject_catalogue_metadata
     (subject_id, catalogue_code, subject_category, elective_group, is_selectable, is_provisional)
 SELECT
-    s.subject_id,
-    seed.catalogue_code,
-    seed.subject_category,
-    seed.elective_group,
-    seed.is_selectable,
-    seed.is_provisional
+    s.subject_id, seed.catalogue_code, seed.subject_category, seed.elective_group, seed.is_selectable, seed.is_provisional
 FROM (
     -- Baseline AIML Subjects
     SELECT 4 AS semester_number, 'AIML401' AS catalogue_code, 'Artificial Intelligence' AS subject_name, 'Legacy Demo Subject' AS subject_category, NULL AS elective_group, 0 AS is_selectable, 0 AS is_provisional UNION ALL
@@ -215,19 +226,18 @@ WHERE NOT EXISTS (
     SELECT 1 FROM subject_catalogue_metadata existing WHERE existing.subject_id = s.subject_id
 );
 
-INSERT IGNORE INTO migration_ledger (migration_name, table_name, entity_natural_key)
+-- Log ONLY if actually inserted by this migration
+INSERT INTO migration_ledger (migration_name, table_name, entity_natural_key)
 SELECT 'sync_local_to_cloud', 'subject_catalogue_metadata', m.catalogue_code
-FROM subject_catalogue_metadata m;
+FROM subject_catalogue_metadata m
+WHERE m.catalogue_code NOT IN (SELECT catalogue_code FROM temp_existing_metadata);
 
 -- --------------------------------------------------------------------
--- 5. Seed Units 1 through 5 (SCOPED STRICTLY TO THE 44 CURRICULUM SUBJECTS)
--- Uses unit_name = CONCAT('Unit ', unit_numbers.unit_number) so unit_name is NOT NULL
+-- STEP 5: Seed Units 1 through 5 (SCOPED STRICTLY TO THE 44 CURRICULUM SUBJECTS)
 -- --------------------------------------------------------------------
 INSERT INTO units (subject_id, unit_number, unit_name)
 SELECT s.subject_id, unit_numbers.unit_number, CONCAT('Unit ', unit_numbers.unit_number)
 FROM subjects s
-JOIN semesters sem ON s.semester_id = sem.semester_id
-JOIN branches b ON sem.branch_id = b.branch_id AND b.branch_name = 'AIML'
 CROSS JOIN (
     SELECT 1 AS unit_number UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5
 ) AS unit_numbers
@@ -247,26 +257,15 @@ AND NOT EXISTS (
     SELECT 1 FROM units existing WHERE existing.subject_id = s.subject_id AND existing.unit_number = unit_numbers.unit_number
 );
 
-INSERT IGNORE INTO migration_ledger (migration_name, table_name, entity_natural_key)
+-- Log ONLY if actually inserted by this migration
+INSERT INTO migration_ledger (migration_name, table_name, entity_natural_key)
 SELECT 'sync_local_to_cloud', 'units', CONCAT(s.subject_code, ':Unit ', u.unit_number)
 FROM units u
 JOIN subjects s ON u.subject_id = s.subject_id
-WHERE s.subject_code IN (
-    'BT-201', 'BT-102', 'BT-203', 'BT-204', 'BT-205',
-    'BT-101', 'BT-202', 'BT-103', 'BT-104', 'BT-105',
-    'AL-301', 'AL-302', 'AL-303', 'AL-304', 'AL-305',
-    'AL-401', 'AL-402', 'AL-404',
-    'AL-501', 'AL-502', 'AL-503(A)', 'AL-504(B)',
-    'AL-601', 'AL-602', 'AL-603(A)', 'AL-604(A)',
-    'AL-701', 'AL-702(A)', 'AL-702(B)', 'AL-702(C)', 'AL-702(D)',
-    'AL-703(A)', 'AL-703(B)', 'AL-703(C)', 'AL-703(D)',
-    'AL-801', 'AL-802(A)', 'AL-802(B)', 'AL-802(C)', 'AL-802(D)',
-    'AL-803(A)', 'AL-803(B)', 'AL-803(C)', 'AL-803(D)'
-);
+WHERE CONCAT(s.subject_code, ':Unit ', u.unit_number) NOT IN (SELECT natural_key FROM temp_existing_units);
 
 -- --------------------------------------------------------------------
--- 6. Seed Missing User (hiteshsoni@gmail.com)
--- Existing Cloud accounts (including Teacher account) are untouched.
+-- STEP 6: Seed Missing User (hiteshsoni@gmail.com)
 -- --------------------------------------------------------------------
 INSERT INTO users (name, email, password_hash, role, branch_id, semester_id)
 SELECT 
@@ -281,13 +280,16 @@ JOIN semesters sem ON sem.branch_id = b.branch_id AND sem.semester_name = 'Semes
 WHERE b.branch_name = 'AIML'
   AND NOT EXISTS (SELECT 1 FROM users WHERE email = 'hiteshsoni@gmail.com');
 
-INSERT IGNORE INTO migration_ledger (migration_name, table_name, entity_natural_key)
-VALUES ('sync_local_to_cloud', 'users', 'hiteshsoni@gmail.com');
+-- Log ONLY if actually inserted by this migration
+INSERT INTO migration_ledger (migration_name, table_name, entity_natural_key)
+SELECT 'sync_local_to_cloud', 'users', 'hiteshsoni@gmail.com'
+FROM users u
+WHERE u.email = 'hiteshsoni@gmail.com'
+  AND 'hiteshsoni@gmail.com' NOT IN (SELECT email FROM temp_existing_users);
 
 -- --------------------------------------------------------------------
--- 7. Seed Migrated Resources (12, 13, 14) with Dynamic Foreign Key Resolution
+-- STEP 7: Seed Migrated Resources (12, 13, 14)
 -- --------------------------------------------------------------------
--- Resource 12
 INSERT INTO resources (title, resource_url, resource_type, subject_id, uploaded_by, unit_id, unit_scope, description)
 SELECT 
     'unit 1',
@@ -305,10 +307,6 @@ JOIN users u ON u.email = 'komalraghuvanshi206@gmail.com'
 WHERE s.subject_name = 'Software Engineering'
   AND NOT EXISTS (SELECT 1 FROM resources WHERE resource_url = '/uploads/8d5188a1c2b34dea859fc1ac104db602.pdf');
 
-INSERT IGNORE INTO migration_ledger (migration_name, table_name, entity_natural_key)
-VALUES ('sync_local_to_cloud', 'resources', '/uploads/8d5188a1c2b34dea859fc1ac104db602.pdf');
-
--- Resource 13
 INSERT INTO resources (title, resource_url, resource_type, subject_id, uploaded_by, unit_id, unit_scope, description)
 SELECT 
     'all',
@@ -326,10 +324,6 @@ JOIN users u ON u.email = 'hiteshsoni@gmail.com'
 WHERE s.subject_name = 'Artificial Intelligence'
   AND NOT EXISTS (SELECT 1 FROM resources WHERE resource_url = '/uploads/71f04b4b2c7641c9b88fffa7499fffbc.png');
 
-INSERT IGNORE INTO migration_ledger (migration_name, table_name, entity_natural_key)
-VALUES ('sync_local_to_cloud', 'resources', '/uploads/71f04b4b2c7641c9b88fffa7499fffbc.png');
-
--- Resource 14
 INSERT INTO resources (title, resource_url, resource_type, subject_id, uploaded_by, unit_id, unit_scope, description)
 SELECT 
     'Resource for Analysis & Design of Algorithms',
@@ -347,14 +341,20 @@ JOIN users u ON u.email = 'komalraghuvanshi206@gmail.com'
 WHERE s.subject_name = 'Analysis & Design of Algorithms'
   AND NOT EXISTS (SELECT 1 FROM resources WHERE resource_url = '/uploads/d24c2cddd4b94d76a1e6ead53ffd1e00.pdf');
 
-INSERT IGNORE INTO migration_ledger (migration_name, table_name, entity_natural_key)
-VALUES ('sync_local_to_cloud', 'resources', '/uploads/d24c2cddd4b94d76a1e6ead53ffd1e00.pdf');
+-- Log ONLY if actually inserted by this migration
+INSERT INTO migration_ledger (migration_name, table_name, entity_natural_key)
+SELECT 'sync_local_to_cloud', 'resources', r.resource_url
+FROM resources r
+WHERE r.resource_url IN (
+    '/uploads/8d5188a1c2b34dea859fc1ac104db602.pdf',
+    '/uploads/71f04b4b2c7641c9b88fffa7499fffbc.png',
+    '/uploads/d24c2cddd4b94d76a1e6ead53ffd1e00.pdf'
+)
+AND r.resource_url NOT IN (SELECT resource_url FROM temp_existing_resources);
 
 -- --------------------------------------------------------------------
--- 8. Seed Migrated Requests (6, 7)
--- CRITICAL REQUIREMENT K FIX: Request 7 references Unit 2 (unit_number = 2), NOT unit_number = 4!
+-- STEP 8: Seed Migrated Requests (6, 7)
 -- --------------------------------------------------------------------
--- Request 6 (Fulfilled)
 INSERT INTO requests (user_id, subject_id, unit_id, request_title, request_description, status, fulfilled_by, fulfilled_resource_id)
 SELECT 
     u_req.user_id,
@@ -374,10 +374,6 @@ WHERE u_req.email = 'hiteshsoni@gmail.com'
       SELECT 1 FROM requests WHERE request_description = 'all' AND user_id = u_req.user_id AND subject_id = s.subject_id
   );
 
-INSERT IGNORE INTO migration_ledger (migration_name, table_name, entity_natural_key)
-VALUES ('sync_local_to_cloud', 'requests', 'hiteshsoni@gmail.com:all');
-
--- Request 7 (Pending) - Correctly joins on un.unit_number = 2
 INSERT INTO requests (user_id, subject_id, unit_id, request_title, request_description, status, fulfilled_by, fulfilled_resource_id)
 SELECT 
     u.user_id,
@@ -396,11 +392,19 @@ WHERE u.email = 'komalraghuvanshi206@gmail.com'
       SELECT 1 FROM requests WHERE request_description = 'want ass Qs of unit 2 of machin learning' AND user_id = u.user_id
   );
 
-INSERT IGNORE INTO migration_ledger (migration_name, table_name, entity_natural_key)
-VALUES ('sync_local_to_cloud', 'requests', 'komalraghuvanshi206@gmail.com:want ass Qs of unit 2 of machin learning');
+-- Log ONLY if actually inserted by this migration
+INSERT INTO migration_ledger (migration_name, table_name, entity_natural_key)
+SELECT 'sync_local_to_cloud', 'requests', CONCAT(u.email, ':', req.request_description)
+FROM requests req
+JOIN users u ON req.user_id = u.user_id
+WHERE CONCAT(u.email, ':', req.request_description) IN (
+    'hiteshsoni@gmail.com:all',
+    'komalraghuvanshi206@gmail.com:want ass Qs of unit 2 of machin learning'
+)
+AND CONCAT(u.email, ':', req.request_description) NOT IN (SELECT natural_key FROM temp_existing_requests);
 
 -- --------------------------------------------------------------------
--- 9. Seed Saved Resources Pair (1, 12)
+-- STEP 9: Seed Saved Resources Pair (1, 12)
 -- --------------------------------------------------------------------
 INSERT INTO saved_resources (user_id, resource_id)
 SELECT u.user_id, r.resource_id
@@ -411,7 +415,13 @@ WHERE u.email = 'komalraghuvanshi206@gmail.com'
       SELECT 1 FROM saved_resources existing WHERE existing.user_id = u.user_id AND existing.resource_id = r.resource_id
   );
 
-INSERT IGNORE INTO migration_ledger (migration_name, table_name, entity_natural_key)
-VALUES ('sync_local_to_cloud', 'saved_resources', 'komalraghuvanshi206@gmail.com:/uploads/8d5188a1c2b34dea859fc1ac104db602.pdf');
+-- Log ONLY if actually inserted by this migration
+INSERT INTO migration_ledger (migration_name, table_name, entity_natural_key)
+SELECT 'sync_local_to_cloud', 'saved_resources', CONCAT(u.email, ':', r.resource_url)
+FROM saved_resources sr
+JOIN users u ON sr.user_id = u.user_id
+JOIN resources r ON sr.resource_id = r.resource_id
+WHERE CONCAT(u.email, ':', r.resource_url) = 'komalraghuvanshi206@gmail.com:/uploads/8d5188a1c2b34dea859fc1ac104db602.pdf'
+  AND CONCAT(u.email, ':', r.resource_url) NOT IN (SELECT natural_key FROM temp_existing_saved);
 
 COMMIT;
