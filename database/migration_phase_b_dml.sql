@@ -1,9 +1,12 @@
 -- ====================================================================
 -- U-NOTE: Production Database Migration - PHASE B (DML Data Synchronization)
 -- Target: Aiven MySQL (defaultdb)
--- Wrapped in an atomic transaction. Stops and rolls back on any error.
--- Strict Ledger Rule: Records ONLY rows actually inserted by this migration.
--- Pre-existing records are filtered out using snapshot tables and never logged.
+-- LEGACY DML PAYLOAD: do not execute this file directly.
+-- Run it only through the guarded Python runner, which owns the transaction,
+-- skips the Aiven-incompatible CTAS snapshots and legacy natural-key ledger
+-- statements, and writes exact inserted primary keys to
+-- migration_ledger_entities. The runner refuses to run when this migration
+-- already has legacy or exact ledger entries.
 -- ====================================================================
 
 START TRANSACTION;
@@ -238,10 +241,13 @@ WHERE m.catalogue_code NOT IN (SELECT catalogue_code FROM temp_existing_metadata
 INSERT INTO units (subject_id, unit_number, unit_name)
 SELECT s.subject_id, unit_numbers.unit_number, CONCAT('Unit ', unit_numbers.unit_number)
 FROM subjects s
+JOIN semesters sem ON sem.semester_id = s.semester_id
+JOIN branches b ON b.branch_id = sem.branch_id
 CROSS JOIN (
     SELECT 1 AS unit_number UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5
 ) AS unit_numbers
-WHERE s.subject_code IN (
+WHERE b.branch_name = 'AIML'
+AND s.subject_code IN (
     'BT-201', 'BT-102', 'BT-203', 'BT-204', 'BT-205',
     'BT-101', 'BT-202', 'BT-103', 'BT-104', 'BT-105',
     'AL-301', 'AL-302', 'AL-303', 'AL-304', 'AL-305',
@@ -264,28 +270,8 @@ FROM units u
 JOIN subjects s ON u.subject_id = s.subject_id
 WHERE CONCAT(s.subject_code, ':Unit ', u.unit_number) NOT IN (SELECT natural_key FROM temp_existing_units);
 
--- --------------------------------------------------------------------
--- STEP 6: Seed Missing User (hiteshsoni@gmail.com)
--- --------------------------------------------------------------------
-INSERT INTO users (name, email, password_hash, role, branch_id, semester_id)
-SELECT 
-    'Hitesh Soni',
-    'hiteshsoni@gmail.com',
-    'scrypt:32768:8:1$p2pZ6fTj8UeW1mKs$582efd978a3ef8906649f7e52a92a543e4cf6b8f3a388f6a98df242c75a4ea01',
-    'student',
-    b.branch_id,
-    sem.semester_id
-FROM branches b
-JOIN semesters sem ON sem.branch_id = b.branch_id AND sem.semester_name = 'Semester 4'
-WHERE b.branch_name = 'AIML'
-  AND NOT EXISTS (SELECT 1 FROM users WHERE email = 'hiteshsoni@gmail.com');
-
--- Log ONLY if actually inserted by this migration
-INSERT INTO migration_ledger (migration_name, table_name, entity_natural_key)
-SELECT 'sync_local_to_cloud', 'users', 'hiteshsoni@gmail.com'
-FROM users u
-WHERE u.email = 'hiteshsoni@gmail.com'
-  AND 'hiteshsoni@gmail.com' NOT IN (SELECT email FROM temp_existing_users);
+-- The required student account must be provisioned separately. This data
+-- migration never creates accounts or sets passwords.
 
 -- --------------------------------------------------------------------
 -- STEP 7: Seed Migrated Resources (12, 13, 14)
@@ -368,6 +354,8 @@ SELECT
 FROM users u_req
 JOIN users u_ful ON u_ful.email = 'komalraghuvanshi206@gmail.com'
 JOIN subjects s ON s.subject_name = 'Analysis & Design of Algorithms'
+JOIN semesters sem ON sem.semester_id = s.semester_id AND sem.semester_name = 'Semester 4'
+JOIN branches b ON b.branch_id = sem.branch_id AND b.branch_name = 'AIML'
 JOIN resources r ON r.resource_url = '/uploads/d24c2cddd4b94d76a1e6ead53ffd1e00.pdf'
 WHERE u_req.email = 'hiteshsoni@gmail.com'
   AND NOT EXISTS (
@@ -386,10 +374,16 @@ SELECT
     NULL
 FROM users u
 JOIN subjects s ON s.subject_name = 'Machine Learning'
+JOIN semesters sem ON sem.semester_id = s.semester_id AND sem.semester_name = 'Semester 4'
+JOIN branches b ON b.branch_id = sem.branch_id AND b.branch_name = 'AIML'
 JOIN units un ON un.subject_id = s.subject_id AND un.unit_number = 2
 WHERE u.email = 'komalraghuvanshi206@gmail.com'
   AND NOT EXISTS (
-      SELECT 1 FROM requests WHERE request_description = 'want ass Qs of unit 2 of machin learning' AND user_id = u.user_id
+      SELECT 1 FROM requests
+      WHERE request_description = 'want ass Qs of unit 2 of machin learning'
+        AND user_id = u.user_id
+        AND subject_id = s.subject_id
+        AND unit_id <=> un.unit_id
   );
 
 -- Log ONLY if actually inserted by this migration

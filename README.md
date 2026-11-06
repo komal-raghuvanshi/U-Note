@@ -37,10 +37,20 @@ Keep credentials in environment variables; do not commit them. Existing sessions
 
 - Place Aiven's public CA certificate at `backend/ca.pem`. Connections to Aiven hosts use that certificate with certificate and hostname verification enabled. Local non-Aiven MySQL connections do not use the Aiven CA.
 - Configure `UNOTE_DB_HOST`, `UNOTE_DB_PORT`, `UNOTE_DB_USER`, `UNOTE_DB_PASSWORD`, `UNOTE_DB_NAME`, and `UNOTE_SECRET_KEY` in each Vercel environment that needs the backend. Use a separate database/user and secret for Preview rather than production data. Set `UNOTE_CORS_ORIGINS` if the frontend is served from a different origin.
+- Local development can use the same Aiven database by setting the same connection variables in `backend/.env`; Aiven connections must use `UNOTE_DB_NAME=defaultdb`. The backend requires an explicit database host and has no implicit localhost database fallback.
 - To enable the contact form, configure `UNOTE_EMAIL` and `UNOTE_EMAIL_APP_PASSWORD` for the backend's SMTP sender in the Vercel environments where contact messages should be delivered. The form submits to Flask; these values are never sent to the browser.
 - The production frontend uses the same-origin `/api` path by default, so `VITE_API_BASE_URL` is only needed when the API is hosted elsewhere. It is a build-time Vite variable.
 - Do not run `database/scheme.sql` or a migration against Aiven without reviewing its target: the schema bootstrap and several existing SQL files explicitly select `u_note`, while the production database is `defaultdb`. Migrations are not run automatically.
-- Vercel stores resource uploads and profile photos in separate directories under its writable temporary directory. These files are not durable across function instances or restarts; use persistent object storage before relying on uploads in production.
+- Resource uploads and profile photos are persisted in the MySQL `resource_files` table and served from there in production; Vercel's temporary directory is only a local fallback. New file writes fail rather than report success if persistent storage is unavailable.
+- `database/migration_phase_c_blob_files.py` copies only files referenced by active resource URLs or profile-photo records. It verifies existing Cloud content and never overwrites a conflicting file. Unreferenced local uploads are deliberately skipped.
+- Apply `database/migration_phase_d_exact_ledger.sql` as an additive migration before using the guarded Phase B runner. It creates an exact-primary-key ledger for newly inserted rows and does not backfill legacy natural-key entries.
+- Inspect Phase B with `python _run_phase_b.py`; the runner is read-only unless `--execute` is passed. It refuses to run when legacy or exact entries already exist, and it requires the associated account to have been provisioned separately. Never execute `migration_phase_b_dml.sql` directly.
+
+#### Current Aiven recovery status
+
+The Aiven `defaultdb` was verified read-only on 2026-11-06. Phase A's expected columns, tables, foreign keys, and nullable unit name are present. All 327 expected Phase B target rows were found, but the legacy ledger has only 326 natural-key entries: the user row is untracked, and a request ledger key is ambiguous across multiple request rows. Those historical entries have not been backfilled into the exact-primary-key ledger because their provenance cannot be proved from current records. Do not rerun Phase B or the targeted rollback until that provenance is established from an authoritative historical backup.
+
+Phase C migrated five active mapped files (6,790,036 bytes). Their Cloud sizes, MIME types, SHA-256 digests, and exact file primary-key ledger entries were verified. Six local files were not mapped to active resources or profile-photo records and were intentionally not migrated.
 
 ### Backend
 
@@ -50,7 +60,7 @@ From the repository root, install `backend/requirements.txt` in a Python environ
 python backend\app.py
 ```
 
-Local resource uploads are stored in `backend/uploads` and are limited to 25 MB; local profile photos are limited to 5 MB. On Vercel, both upload types are limited to 4 MB to stay within the function request-body cap, but files and profile photos are stored in temporary storage and may not persist. Configure a persistent object-storage provider before relying on hosted uploads.
+Local resource uploads are stored in `backend/uploads` and are limited to 25 MB; local profile photos are limited to 5 MB. On Vercel, both upload types are limited to 4 MB to stay within the function request-body cap, then persisted in the Aiven `resource_files` table. Keep each upload below the configured limit.
 
 ### Frontend
 

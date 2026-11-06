@@ -941,25 +941,22 @@ def upload_resource():
                 raise RequestFulfillmentConflict
 
         if not is_link_upload and saved_filename and os.path.isfile(file_path):
-            if table_exists(cursor, "resource_files") and not type(cursor).__module__.startswith("unittest.mock"):
-                try:
-                    with open(file_path, "rb") as f_in:
-                        f_bytes = f_in.read()
-                    guess_mime, _ = mimetypes.guess_type(saved_filename)
-                    guess_mime = guess_mime or "application/octet-stream"
-                    cursor.execute(
-                        """
-                        INSERT INTO resource_files (filename, mime_type, file_data, file_size)
-                        VALUES (%s, %s, %s, %s)
-                        ON DUPLICATE KEY UPDATE
-                            mime_type = VALUES(mime_type),
-                            file_data = VALUES(file_data),
-                            file_size = VALUES(file_size)
-                        """,
-                        (saved_filename, guess_mime, f_bytes, len(f_bytes))
-                    )
-                except Exception:
-                    current_app.logger.exception("Failed to persist file in database resource_files")
+            has_file_storage = table_exists(cursor, "resource_files")
+            is_mock_cursor = type(cursor).__module__.startswith("unittest.mock")
+            if os.environ.get("VERCEL") and not has_file_storage:
+                raise RuntimeError("Persistent file storage is unavailable.")
+            if has_file_storage and not is_mock_cursor:
+                with open(file_path, "rb") as f_in:
+                    f_bytes = f_in.read()
+                guess_mime, _ = mimetypes.guess_type(saved_filename)
+                guess_mime = guess_mime or "application/octet-stream"
+                cursor.execute(
+                    """
+                    INSERT INTO resource_files (filename, mime_type, file_data, file_size)
+                    VALUES (%s, %s, %s, %s)
+                    """,
+                    (saved_filename, guess_mime, f_bytes, len(f_bytes))
+                )
 
         connection.commit()
 

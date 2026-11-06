@@ -1,6 +1,7 @@
 import os
 import re
 import tempfile
+import mimetypes
 from uuid import uuid4
 
 import io
@@ -331,23 +332,21 @@ def profile():
                 updates.append("profile_photo = NULL")
 
             if photo_file and photo_filename and saved_photo_path and os.path.isfile(saved_photo_path):
-                if table_exists(cursor, "resource_files") and not type(cursor).__module__.startswith("unittest.mock"):
-                    try:
-                        with open(saved_photo_path, "rb") as f_photo:
-                            p_bytes = f_photo.read()
-                        cursor.execute(
-                            """
-                            INSERT INTO resource_files (filename, mime_type, file_data, file_size)
-                            VALUES (%s, %s, %s, %s)
-                            ON DUPLICATE KEY UPDATE
-                                mime_type = VALUES(mime_type),
-                                file_data = VALUES(file_data),
-                                file_size = VALUES(file_size)
-                            """,
-                            (f"profile_photos/{photo_filename}", f"image/{extension}", p_bytes, len(p_bytes))
-                        )
-                    except Exception:
-                        current_app.logger.exception("Failed to store profile photo in resource_files")
+                has_file_storage = table_exists(cursor, "resource_files")
+                is_mock_cursor = type(cursor).__module__.startswith("unittest.mock")
+                if os.environ.get("VERCEL") and not has_file_storage:
+                    raise RuntimeError("Persistent file storage is unavailable.")
+                if has_file_storage and not is_mock_cursor:
+                    with open(saved_photo_path, "rb") as f_photo:
+                        p_bytes = f_photo.read()
+                    mime_type = mimetypes.guess_type(photo_filename)[0] or "application/octet-stream"
+                    cursor.execute(
+                        """
+                        INSERT INTO resource_files (filename, mime_type, file_data, file_size)
+                        VALUES (%s, %s, %s, %s)
+                        """,
+                        (f"profile_photos/{photo_filename}", mime_type, p_bytes, len(p_bytes))
+                    )
 
             if data.get("remove_profile_photo") == "1" and has_photo:
                 if table_exists(cursor, "resource_files") and not type(cursor).__module__.startswith("unittest.mock"):
