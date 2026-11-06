@@ -1,5 +1,6 @@
 import os
 import re
+import tempfile
 from uuid import uuid4
 
 from flask import Blueprint, current_app, g, jsonify, request, send_from_directory
@@ -18,12 +19,14 @@ auth_bp = Blueprint("auth", __name__)
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 PROFILE_PHOTO_EXTENSIONS = {"jpg", "jpeg", "png", "webp"}
 MAX_PROFILE_PHOTO_SIZE = 5 * 1024 * 1024
-PROFILE_PHOTO_FOLDER = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "uploads",
-    "profile_photos",
-)
-os.makedirs(PROFILE_PHOTO_FOLDER, exist_ok=True)
+if os.environ.get("VERCEL"):
+    PROFILE_PHOTO_FOLDER = os.path.join(tempfile.gettempdir(), "unote_profile_photos")
+else:
+    PROFILE_PHOTO_FOLDER = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "uploads",
+        "profile_photos",
+    )
 
 
 def _session_unavailable():
@@ -302,6 +305,7 @@ def profile():
 
                 photo_filename = f"{uuid4().hex}.{extension}"
                 saved_photo_path = os.path.join(PROFILE_PHOTO_FOLDER, photo_filename)
+                os.makedirs(PROFILE_PHOTO_FOLDER, exist_ok=True)
                 photo_file.save(saved_photo_path)
                 photo_size = os.path.getsize(saved_photo_path)
                 if photo_size == 0 or photo_size > MAX_PROFILE_PHOTO_SIZE:

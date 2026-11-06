@@ -78,8 +78,10 @@ function AuthPages({ mode = 'login', onNavigate, onLoginSuccess }) {
       })
       setSuccess(isLogin ? 'You are signed in.' : 'Your account has been created.')
       window.setTimeout(() => onNavigate('/'), 500)
-    } catch {
-      setError('Unable to connect to the backend server. Please verify Flask is running on port 5000.')
+    } catch (requestError) {
+      setError(requestError instanceof TypeError
+        ? 'Unable to reach the U-NOTE backend. Check the deployment status or try again.'
+        : requestError.message || 'Unable to complete the authentication request.')
     } finally {
       setLoading(false)
     }

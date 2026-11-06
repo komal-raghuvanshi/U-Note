@@ -1,4 +1,5 @@
 import os
+import tempfile
 from urllib.parse import urlparse
 from uuid import uuid4
 from flask import Blueprint, request, jsonify, current_app, send_from_directory, g
@@ -21,14 +22,12 @@ class RequestFulfillmentConflict(Exception):
 
 
 if os.environ.get("VERCEL"):
-    UPLOAD_FOLDER = "/tmp/unote_uploads"
+    UPLOAD_FOLDER = os.path.join(tempfile.gettempdir(), "unote_uploads")
 else:
     UPLOAD_FOLDER = os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
         "uploads"
     )
-
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 
 def allowed_file(filename):
@@ -815,6 +814,7 @@ def upload_resource():
 
             saved_filename = f"{uuid4().hex}.{extension}"
             file_path = os.path.join(UPLOAD_FOLDER, saved_filename)
+            os.makedirs(UPLOAD_FOLDER, exist_ok=True)
             file.save(file_path)
 
             file_size = os.path.getsize(file_path)

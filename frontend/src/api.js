@@ -7,12 +7,17 @@ export function apiUrl(path) {
   return `${API_BASE_URL}${path.startsWith('/') ? path : `/${path}`}`
 }
 
-export function apiFetch(path, options = {}, token) {
+export async function apiFetch(path, options = {}, token) {
   const headers = new Headers(options.headers || {})
   if (token) headers.set('Authorization', `Bearer ${token}`)
 
-  return fetch(apiUrl(path), {
+  const response = await fetch(apiUrl(path), {
     ...options,
     headers
   })
+  const contentType = response.headers.get('content-type') || ''
+  if (!contentType.toLowerCase().includes('application/json')) {
+    throw new Error(`The backend returned an unexpected response (HTTP ${response.status}).`)
+  }
+  return response
 }

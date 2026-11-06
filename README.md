@@ -39,7 +39,7 @@ Keep credentials in environment variables; do not commit them. Existing sessions
 - Configure `UNOTE_DB_HOST`, `UNOTE_DB_PORT`, `UNOTE_DB_USER`, `UNOTE_DB_PASSWORD`, `UNOTE_DB_NAME`, and `UNOTE_SECRET_KEY` in each Vercel environment that needs the backend. Use a separate database/user and secret for Preview rather than production data. Set `UNOTE_CORS_ORIGINS` if the frontend is served from a different origin.
 - The production frontend uses the same-origin `/api` path by default, so `VITE_API_BASE_URL` is only needed when the API is hosted elsewhere. It is a build-time Vite variable.
 - Do not run `database/scheme.sql` or a migration against Aiven without reviewing its target: the schema bootstrap and several existing SQL files explicitly select `u_note`, while the production database is `defaultdb`. Migrations are not run automatically.
-- Vercel's `/tmp/unote_uploads` and the backend profile-photo directory are not durable storage. Uploaded resources and profile photos need persistent object storage before relying on them in production.
+- Vercel stores resource uploads and profile photos in separate directories under its writable temporary directory. These files are not durable across function instances or restarts; use persistent object storage before relying on uploads in production.
 
 ### Backend
 
