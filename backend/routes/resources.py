@@ -7,10 +7,10 @@ from werkzeug.utils import secure_filename
 
 try:
     from auth_utils import authenticated_user_id, require_auth
-    from db import get_db_connection
+    from db import get_db_connection, table_exists, column_exists
 except ImportError:
     from backend.auth_utils import authenticated_user_id, require_auth
-    from backend.db import get_db_connection
+    from backend.db import get_db_connection, table_exists, column_exists
 
 resources_bp = Blueprint("resources", __name__)
 ALLOWED_EXTENSIONS = {"pdf", "png", "jpg", "jpeg"}
@@ -70,7 +70,14 @@ def _fetch_all_resources(owner_id=None):
     try:
         connection = get_db_connection()
         cursor = connection.cursor(dictionary=True)
-        query = """
+        has_meta = table_exists(cursor, "subject_catalogue_metadata")
+        has_scope = column_exists(cursor, "resources", "unit_scope")
+
+        meta_join = "LEFT JOIN subject_catalogue_metadata meta ON meta.subject_id = s.subject_id" if has_meta else ""
+        meta_code = "COALESCE(meta.catalogue_code, s.subject_code) AS subject_code," if has_meta else "s.subject_code AS subject_code,"
+        scope_col = "r.unit_scope AS unit_scope," if has_scope else "'unit' AS unit_scope,"
+
+        query = f"""
             SELECT
                 r.resource_id AS id,
                 r.title,
@@ -80,10 +87,10 @@ def _fetch_all_resources(owner_id=None):
                 b.branch_name AS branch,
                 sem.semester_name AS semester,
                 s.subject_name AS subject,
-                COALESCE(meta.catalogue_code, s.subject_code) AS subject_code,
+                {meta_code}
                 u.unit_number AS unit,
                 u.unit_name AS unit_name,
-                r.unit_scope AS unit_scope,
+                {scope_col}
                 r.created_at AS uploaded_at,
                 r.uploaded_by,
                 uploader.name AS uploader_name,
@@ -92,7 +99,7 @@ def _fetch_all_resources(owner_id=None):
                 COALESCE(rating_stats.rating_count, 0) AS rating_count
             FROM resources r
             LEFT JOIN subjects s ON r.subject_id = s.subject_id
-            LEFT JOIN subject_catalogue_metadata meta ON meta.subject_id = s.subject_id
+            {meta_join}
             LEFT JOIN semesters sem ON s.semester_id = sem.semester_id
             LEFT JOIN branches b ON sem.branch_id = b.branch_id
             LEFT JOIN units u ON r.unit_id = u.unit_id
@@ -517,15 +524,16 @@ def delete_resource(resource_id):
                 "message": "You are not authorized to delete this resource"
             }), 403
 
-        cursor.execute(
-            "SELECT request_id FROM requests WHERE fulfilled_resource_id = %s LIMIT 1",
-            (resource_id,)
-        )
-        if cursor.fetchone():
-            return jsonify({
-                "success": False,
-                "message": "This resource fulfills a request and cannot be deleted."
-            }), 409
+        if column_exists(cursor, "requests", "fulfilled_resource_id"):
+            cursor.execute(
+                "SELECT request_id FROM requests WHERE fulfilled_resource_id = %s LIMIT 1",
+                (resource_id,)
+            )
+            if cursor.fetchone():
+                return jsonify({
+                    "success": False,
+                    "message": "This resource fulfills a request and cannot be deleted."
+                }), 409
 
         url = (res.get("resource_url") or "").strip()
         fname = secure_filename(url[len("/uploads/"):]) if url.startswith("/uploads/") else ""
@@ -708,22 +716,43 @@ def upload_resource():
             }), 400
         semester_id = semester_row["semester_id"]
 
-        # 3. Validate Subject for this Semester
-        cursor.execute(
-            """
-            SELECT s.subject_id, s.subject_name, s.subject_code
-            FROM subjects s
-            LEFT JOIN subject_catalogue_metadata meta ON meta.subject_id = s.subject_id
-            WHERE s.semester_id = %s
-              AND COALESCE(meta.is_selectable, 1) = 1
-              AND (
-                  LOWER(s.subject_name) = LOWER(%s)
-                  OR LOWER(s.subject_code) = LOWER(%s)
-                  OR LOWER(COALESCE(meta.catalogue_code, s.subject_code)) = LOWER(%s)
-              )
-            """,
-            (semester_id, subject, subject, subject)
+        has_meta = table_exists(cursor, "subject_catalogue_metadata")
+        has_scope = column_exists(cursor, "resources", "unit_scope")
+        has_fulfill_cols = (
+            column_exists(cursor, "requests", "fulfilled_by")
+            and column_exists(cursor, "requests", "fulfilled_resource_id")
         )
+
+        # 3. Validate Subject for this Semester
+        if has_meta:
+            cursor.execute(
+                """
+                SELECT s.subject_id, s.subject_name, s.subject_code
+                FROM subjects s
+                LEFT JOIN subject_catalogue_metadata meta ON meta.subject_id = s.subject_id
+                WHERE s.semester_id = %s
+                  AND COALESCE(meta.is_selectable, 1) = 1
+                  AND (
+                      LOWER(s.subject_name) = LOWER(%s)
+                      OR LOWER(s.subject_code) = LOWER(%s)
+                      OR LOWER(COALESCE(meta.catalogue_code, s.subject_code)) = LOWER(%s)
+                  )
+                """,
+                (semester_id, subject, subject, subject)
+            )
+        else:
+            cursor.execute(
+                """
+                SELECT s.subject_id, s.subject_name, s.subject_code
+                FROM subjects s
+                WHERE s.semester_id = %s
+                  AND (
+                      LOWER(s.subject_name) = LOWER(%s)
+                      OR LOWER(s.subject_code) = LOWER(%s)
+                  )
+                """,
+                (semester_id, subject, subject)
+            )
         subject_row = cursor.fetchone()
         if not subject_row:
             return jsonify({
@@ -846,37 +875,66 @@ def upload_resource():
             f"{'All Units' if unit_scope == 'all' else f'Unit {unit_num}'}"
         )
 
-        cursor.execute(
-            """
-            INSERT INTO resources
-                (title, resource_url, resource_type, subject_id, uploaded_by, unit_id, unit_scope, description)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-            """,
-            (
-                title,
-                final_resource_url,
-                resource_type,
-                subject_id,
-                uploaded_by,
-                unit_id,
-                unit_scope,
-                res_desc
+        if has_scope:
+            cursor.execute(
+                """
+                INSERT INTO resources
+                    (title, resource_url, resource_type, subject_id, uploaded_by, unit_id, unit_scope, description)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    title,
+                    final_resource_url,
+                    resource_type,
+                    subject_id,
+                    uploaded_by,
+                    unit_id,
+                    unit_scope,
+                    res_desc
+                )
             )
-        )
+        else:
+            cursor.execute(
+                """
+                INSERT INTO resources
+                    (title, resource_url, resource_type, subject_id, uploaded_by, unit_id, description)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    title,
+                    final_resource_url,
+                    resource_type,
+                    subject_id,
+                    uploaded_by,
+                    unit_id,
+                    res_desc
+                )
+            )
         new_resource_id = cursor.lastrowid
 
         if request_id is not None:
-            cursor.execute(
-                """
-                UPDATE requests
-                SET status = 'Fulfilled',
-                    fulfilled_by = %s,
-                    fulfilled_resource_id = %s
-                WHERE request_id = %s
-                  AND status = 'Pending'
-                """,
-                (uploaded_by, new_resource_id, request_id)
-            )
+            if has_fulfill_cols:
+                cursor.execute(
+                    """
+                    UPDATE requests
+                    SET status = 'Fulfilled',
+                        fulfilled_by = %s,
+                        fulfilled_resource_id = %s
+                    WHERE request_id = %s
+                      AND status = 'Pending'
+                    """,
+                    (uploaded_by, new_resource_id, request_id)
+                )
+            else:
+                cursor.execute(
+                    """
+                    UPDATE requests
+                    SET status = 'Fulfilled'
+                    WHERE request_id = %s
+                      AND status = 'Pending'
+                    """,
+                    (request_id,)
+                )
             if cursor.rowcount != 1:
                 raise RequestFulfillmentConflict
 

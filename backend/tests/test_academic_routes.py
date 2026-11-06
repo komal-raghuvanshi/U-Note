@@ -164,5 +164,68 @@ class AcademicRouteTests(unittest.TestCase):
         self.assertEqual(update_values, ("DS", "Semester 3"))
 
 
+
+    def test_subjects_fallback_when_catalogue_metadata_table_is_missing(self):
+        cursor = MagicMock()
+        cursor.fetchall.return_value = [{
+            "id": 1,
+            "code": "AIML401",
+            "name": "Artificial Intelligence",
+            "branch": "AIML",
+            "semester": "Semester 4",
+            "category": None,
+            "elective_group": None,
+            "is_selectable": 1,
+            "is_provisional": 0,
+        }]
+        connection = MagicMock()
+        connection.cursor.return_value = cursor
+
+        with (
+            patch.object(subjects, "get_db_connection", return_value=connection),
+            patch.object(subjects, "table_exists", return_value=False),
+        ):
+            response = self.client.get("/subjects?branch=AIML&semester=4")
+
+        self.assertEqual(response.status_code, 200)
+        subjects_data = response.get_json()
+        self.assertEqual(len(subjects_data), 1)
+        self.assertEqual(subjects_data[0]["name"], "Artificial Intelligence")
+        query, _ = cursor.execute.call_args.args
+        self.assertNotIn("subject_catalogue_metadata", query)
+
+    def test_subject_by_id_fallback_when_catalogue_metadata_table_is_missing(self):
+        cursor = MagicMock()
+        cursor.fetchone.return_value = {
+            "id": 1,
+            "code": "AIML401",
+            "name": "Artificial Intelligence",
+            "branch": "AIML",
+            "semester": "Semester 4",
+            "category": None,
+            "elective_group": None,
+            "is_selectable": 1,
+            "is_provisional": 0,
+        }
+        cursor.fetchall.return_value = [
+            {"id": 10, "unit_number": 1, "name": "Introduction"}
+        ]
+        connection = MagicMock()
+        connection.cursor.return_value = cursor
+
+        with (
+            patch.object(subjects, "get_db_connection", return_value=connection),
+            patch.object(subjects, "table_exists", return_value=False),
+        ):
+            response = self.client.get("/subjects/1")
+
+        self.assertEqual(response.status_code, 200)
+        subject_data = response.get_json()
+        self.assertEqual(subject_data["name"], "Artificial Intelligence")
+        self.assertEqual(len(subject_data["units"]), 1)
+        first_query = cursor.execute.call_args_list[0].args[0]
+        self.assertNotIn("subject_catalogue_metadata", first_query)
+
+
 if __name__ == "__main__":
     unittest.main()

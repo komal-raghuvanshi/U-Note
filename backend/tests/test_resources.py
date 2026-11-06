@@ -531,5 +531,46 @@ class ResourceRouteTests(unittest.TestCase):
         self.assertEqual(response.get_json()["resource"]["unit_scope"], expected_scope)
 
 
+
+    def test_resources_fallback_when_catalogue_metadata_is_missing(self):
+        filename = "test_note.pdf"
+        with open(os.path.join(self.upload_directory.name, filename), "wb") as f:
+            f.write(b"content")
+
+        cursor = MagicMock()
+        cursor.fetchall.return_value = [{
+            "id": 1,
+            "title": "Notes",
+            "resource_url": f"/uploads/{filename}",
+            "type": "PDF Notes",
+            "description": "Desc",
+            "branch": "AIML",
+            "semester": "Semester 4",
+            "subject": "Machine Learning",
+            "subject_code": "AIML402",
+            "unit": 1,
+            "unit_name": "Unit 1",
+            "unit_scope": "unit",
+            "uploaded_at": datetime.now(),
+            "uploaded_by": 1,
+            "uploader_name": "Author",
+            "uploader_role": "student",
+            "avg_rating": 4.5,
+            "rating_count": 2,
+        }]
+        connection = MagicMock()
+        connection.cursor.return_value = cursor
+
+        with (
+            patch.object(resources, "get_db_connection", return_value=connection),
+            patch.object(resources, "table_exists", return_value=False),
+        ):
+            response = self.client.get("/resources")
+
+        self.assertEqual(response.status_code, 200)
+        query = cursor.execute.call_args.args[0]
+        self.assertNotIn("subject_catalogue_metadata", query)
+
+
 if __name__ == "__main__":
     unittest.main()

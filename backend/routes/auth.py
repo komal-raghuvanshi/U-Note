@@ -9,10 +9,10 @@ from werkzeug.utils import secure_filename
 
 try:
     from auth_utils import create_auth_token, require_auth
-    from db import get_db_connection
+    from db import get_db_connection, column_exists
 except ImportError:
     from backend.auth_utils import create_auth_token, require_auth
-    from backend.db import get_db_connection
+    from backend.db import get_db_connection, column_exists
 
 
 auth_bp = Blueprint("auth", __name__)
@@ -196,15 +196,17 @@ def login():
     try:
         connection = get_db_connection()
         cursor = connection.cursor(dictionary=True)
+        has_photo = column_exists(cursor, "users", "profile_photo")
+        photo_select = "u.profile_photo," if has_photo else "NULL AS profile_photo,"
         cursor.execute(
-            """
+            f"""
             SELECT
                 u.user_id,
                 u.name,
                 u.email,
                 u.password_hash,
                 u.role,
-                u.profile_photo,
+                {photo_select}
                 b.branch_name AS branch,
                 s.semester_name AS semester
             FROM users u
@@ -297,8 +299,9 @@ def profile():
                 updates.extend(["branch_id = %s", "semester_id = %s"])
                 values.extend([academic_data["branch_id"], academic_data["semester_id"]])
 
+            has_photo = column_exists(cursor, "users", "profile_photo")
             photo_file = request.files.get("profile_photo")
-            if photo_file and photo_file.filename:
+            if photo_file and photo_file.filename and has_photo:
                 extension = photo_file.filename.rsplit(".", 1)[-1].lower()
                 if "." not in photo_file.filename or extension not in PROFILE_PHOTO_EXTENSIONS:
                     return jsonify({
@@ -323,7 +326,7 @@ def profile():
                     }), 400
                 updates.append("profile_photo = %s")
                 values.append(photo_filename)
-            elif data.get("remove_profile_photo") == "1":
+            elif data.get("remove_profile_photo") == "1" and has_photo:
                 updates.append("profile_photo = NULL")
 
             values.append(g.user_id)
@@ -334,10 +337,12 @@ def profile():
             connection.commit()
             saved_photo_path = None
 
+        has_photo = column_exists(cursor, "users", "profile_photo")
+        photo_select = "u.profile_photo," if has_photo else "NULL AS profile_photo,"
         cursor.execute(
-            """
+            f"""
             SELECT
-                u.user_id, u.name, u.email, u.role, u.profile_photo,
+                u.user_id, u.name, u.email, u.role, {photo_select}
                 b.branch_name AS branch, s.semester_name AS semester
             FROM users u
             LEFT JOIN branches b ON u.branch_id = b.branch_id

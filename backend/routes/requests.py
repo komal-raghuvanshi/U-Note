@@ -2,40 +2,62 @@ from flask import Blueprint, jsonify, request, current_app, g
 
 try:
     from auth_utils import require_auth
-    from db import get_db_connection
+    from db import get_db_connection, table_exists, column_exists
 except ImportError:
     from backend.auth_utils import require_auth
-    from backend.db import get_db_connection
+    from backend.db import get_db_connection, table_exists, column_exists
 
 requests_bp = Blueprint("requests", __name__)
 
-
-@requests_bp.route("/requests", methods=["GET"])
-@require_auth
-def get_requests():
-    branch = request.args.get("branch")
-    semester = request.args.get("semester")
-    subject = request.args.get("subject")
-    status = request.args.get("status")
-
-    query = """
-        SELECT
-            req.request_id AS id,
-            COALESCE(req.request_title, s.subject_name) AS title,
-            req.request_description AS description,
-            req.status,
+def _build_request_select_sql(cursor):
+    has_meta = table_exists(cursor, "subject_catalogue_metadata")
+    has_title = column_exists(cursor, "requests", "request_title")
+    has_fulfill = (
+        column_exists(cursor, "requests", "fulfilled_by")
+        and column_exists(cursor, "requests", "fulfilled_resource_id")
+    )
+    title_sql = "COALESCE(req.request_title, s.subject_name) AS title," if has_title else "s.subject_name AS title,"
+    if has_fulfill:
+        fulfill_cols = """
             req.fulfilled_by,
             fulfiller.name AS fulfilled_by_name,
             req.fulfilled_resource_id,
             fulfilled_resource.title AS fulfilled_resource_title,
             fulfilled_resource.resource_url AS fulfilled_resource_url,
+        """
+        fulfill_joins = """
+            LEFT JOIN users fulfiller ON req.fulfilled_by = fulfiller.user_id
+            LEFT JOIN resources fulfilled_resource
+                ON req.fulfilled_resource_id = fulfilled_resource.resource_id
+        """
+    else:
+        fulfill_cols = """
+            NULL AS fulfilled_by,
+            NULL AS fulfilled_by_name,
+            NULL AS fulfilled_resource_id,
+            NULL AS fulfilled_resource_title,
+            NULL AS fulfilled_resource_url,
+        """
+        fulfill_joins = """
+        """
+
+    meta_code = "COALESCE(meta.catalogue_code, s.subject_code) AS subject_code," if has_meta else "s.subject_code AS subject_code,"
+    meta_join = "LEFT JOIN subject_catalogue_metadata meta ON meta.subject_id = s.subject_id" if has_meta else ""
+
+    base_query = f"""
+        SELECT
+            req.request_id AS id,
+            {title_sql}
+            req.request_description AS description,
+            req.status,
+            {fulfill_cols}
             req.created_at,
             u.user_id,
             u.name AS user_name,
             u.role AS user_role,
             s.subject_id,
             s.subject_name AS subject,
-            COALESCE(meta.catalogue_code, s.subject_code) AS subject_code,
+            {meta_code}
             sem.semester_name AS semester,
             b.branch_name AS branch,
             un.unit_number AS unit,
@@ -46,11 +68,21 @@ def get_requests():
         JOIN semesters sem ON s.semester_id = sem.semester_id
         JOIN branches b ON sem.branch_id = b.branch_id
         LEFT JOIN units un ON req.unit_id = un.unit_id
-        LEFT JOIN subject_catalogue_metadata meta ON meta.subject_id = s.subject_id
-        LEFT JOIN users fulfiller ON req.fulfilled_by = fulfiller.user_id
-        LEFT JOIN resources fulfilled_resource
-            ON req.fulfilled_resource_id = fulfilled_resource.resource_id
+        {meta_join}
+        {fulfill_joins}
     """
+    return base_query, has_meta
+
+
+
+@requests_bp.route("/requests", methods=["GET"])
+@require_auth
+def get_requests():
+    branch = request.args.get("branch")
+    semester = request.args.get("semester")
+    subject = request.args.get("subject")
+    status = request.args.get("status")
+
     conditions = []
     values = []
 
@@ -68,16 +100,6 @@ def get_requests():
         except (ValueError, TypeError):
             return jsonify({"success": False, "message": "Semester must be between 1 and 8."}), 400
 
-    if subject:
-        conditions.append("""
-            (
-                LOWER(s.subject_name) = LOWER(%s)
-                OR LOWER(s.subject_code) = LOWER(%s)
-                OR LOWER(COALESCE(meta.catalogue_code, s.subject_code)) = LOWER(%s)
-            )
-        """)
-        values.extend([subject.strip(), subject.strip(), subject.strip()])
-
     if status and status.lower() != "all":
         if status.lower() not in ("pending", "fulfilled", "rejected"):
             return jsonify({"success": False, "message": "Invalid request status."}), 400
@@ -89,6 +111,28 @@ def get_requests():
     try:
         connection = get_db_connection()
         cursor = connection.cursor(dictionary=True)
+        base_query, has_meta = _build_request_select_sql(cursor)
+
+        if subject:
+            if has_meta:
+                conditions.append("""
+                    (
+                        LOWER(s.subject_name) = LOWER(%s)
+                        OR LOWER(s.subject_code) = LOWER(%s)
+                        OR LOWER(COALESCE(meta.catalogue_code, s.subject_code)) = LOWER(%s)
+                    )
+                """)
+                values.extend([subject.strip(), subject.strip(), subject.strip()])
+            else:
+                conditions.append("""
+                    (
+                        LOWER(s.subject_name) = LOWER(%s)
+                        OR LOWER(s.subject_code) = LOWER(%s)
+                    )
+                """)
+                values.extend([subject.strip(), subject.strip()])
+
+        query = base_query
         if conditions:
             query += " WHERE " + " AND ".join(conditions)
 
@@ -127,21 +171,36 @@ def _resolve_academic_scope(cursor, branch, semester, subject, unit):
     except (ValueError, TypeError):
         return None, None, "Semester must be between 1 and 8."
 
-    cursor.execute("""
-        SELECT s.subject_id, s.subject_name
-        FROM subjects s
-        JOIN semesters sem ON s.semester_id = sem.semester_id
-        JOIN branches b ON sem.branch_id = b.branch_id
-        LEFT JOIN subject_catalogue_metadata meta ON meta.subject_id = s.subject_id
-        WHERE LOWER(b.branch_name) = LOWER(%s)
-          AND sem.semester_name = %s
-          AND COALESCE(meta.is_selectable, 1) = 1
-          AND (
-              LOWER(s.subject_name) = LOWER(%s)
-              OR LOWER(s.subject_code) = LOWER(%s)
-              OR LOWER(COALESCE(meta.catalogue_code, s.subject_code)) = LOWER(%s)
-          )
-    """, (branch, f"Semester {sem_num}", subject, subject, subject))
+    has_meta = table_exists(cursor, "subject_catalogue_metadata")
+    if has_meta:
+        cursor.execute("""
+            SELECT s.subject_id, s.subject_name
+            FROM subjects s
+            JOIN semesters sem ON s.semester_id = sem.semester_id
+            JOIN branches b ON sem.branch_id = b.branch_id
+            LEFT JOIN subject_catalogue_metadata meta ON meta.subject_id = s.subject_id
+            WHERE LOWER(b.branch_name) = LOWER(%s)
+              AND sem.semester_name = %s
+              AND COALESCE(meta.is_selectable, 1) = 1
+              AND (
+                  LOWER(s.subject_name) = LOWER(%s)
+                  OR LOWER(s.subject_code) = LOWER(%s)
+                  OR LOWER(COALESCE(meta.catalogue_code, s.subject_code)) = LOWER(%s)
+              )
+        """, (branch, f"Semester {sem_num}", subject, subject, subject))
+    else:
+        cursor.execute("""
+            SELECT s.subject_id, s.subject_name
+            FROM subjects s
+            JOIN semesters sem ON s.semester_id = sem.semester_id
+            JOIN branches b ON sem.branch_id = b.branch_id
+            WHERE LOWER(b.branch_name) = LOWER(%s)
+              AND sem.semester_name = %s
+              AND (
+                  LOWER(s.subject_name) = LOWER(%s)
+                  OR LOWER(s.subject_code) = LOWER(%s)
+              )
+        """, (branch, f"Semester {sem_num}", subject, subject))
     subject_row = cursor.fetchone()
     if not subject_row:
         return None, None, (
@@ -216,11 +275,19 @@ def create_request():
         if validation_error:
             return jsonify({"success": False, "message": validation_error}), 400
 
-        cursor.execute("""
-            INSERT INTO requests
-                (user_id, subject_id, unit_id, request_title, request_description, status)
-            VALUES (%s, %s, %s, %s, %s, 'Pending')
-        """, (g.user_id, subject_id, unit_id, title, description))
+        has_title = column_exists(cursor, "requests", "request_title")
+        if has_title:
+            cursor.execute("""
+                INSERT INTO requests
+                    (user_id, subject_id, unit_id, request_title, request_description, status)
+                VALUES (%s, %s, %s, %s, %s, 'Pending')
+            """, (g.user_id, subject_id, unit_id, title, description))
+        else:
+            cursor.execute("""
+                INSERT INTO requests
+                    (user_id, subject_id, unit_id, request_description, status)
+                VALUES (%s, %s, %s, %s, 'Pending')
+            """, (g.user_id, subject_id, unit_id, description))
         connection.commit()
         new_id = cursor.lastrowid
 
@@ -314,16 +381,28 @@ def edit_request(request_id):
         if validation_error:
             return jsonify({"success": False, "message": validation_error}), 400
 
-        cursor.execute("""
-            UPDATE requests
-            SET request_title = %s,
-                request_description = %s,
-                subject_id = %s,
-                unit_id = %s
-            WHERE request_id = %s
-              AND user_id = %s
-              AND status = 'Pending'
-        """, (title, description, subject_id, unit_id, request_id, g.user_id))
+        has_title = column_exists(cursor, "requests", "request_title")
+        if has_title:
+            cursor.execute("""
+                UPDATE requests
+                SET request_title = %s,
+                    request_description = %s,
+                    subject_id = %s,
+                    unit_id = %s
+                WHERE request_id = %s
+                  AND user_id = %s
+                  AND status = 'Pending'
+            """, (title, description, subject_id, unit_id, request_id, g.user_id))
+        else:
+            cursor.execute("""
+                UPDATE requests
+                SET request_description = %s,
+                    subject_id = %s,
+                    unit_id = %s
+                WHERE request_id = %s
+                  AND user_id = %s
+                  AND status = 'Pending'
+            """, (description, subject_id, unit_id, request_id, g.user_id))
         if cursor.rowcount != 1:
             connection.rollback()
             return jsonify({
@@ -413,41 +492,8 @@ def get_my_requests():
     try:
         connection = get_db_connection()
         cursor = connection.cursor(dictionary=True)
-        cursor.execute("""
-        SELECT
-            req.request_id AS id,
-            COALESCE(req.request_title, s.subject_name) AS title,
-            req.request_description AS description,
-            req.status,
-            req.fulfilled_by,
-            fulfiller.name AS fulfilled_by_name,
-            req.fulfilled_resource_id,
-            fulfilled_resource.title AS fulfilled_resource_title,
-            fulfilled_resource.resource_url AS fulfilled_resource_url,
-            req.created_at,
-            u.user_id,
-            u.name AS user_name,
-            u.role AS user_role,
-            s.subject_id,
-            s.subject_name AS subject,
-            COALESCE(meta.catalogue_code, s.subject_code) AS subject_code,
-            sem.semester_name AS semester,
-            b.branch_name AS branch,
-            un.unit_number AS unit,
-            un.unit_name AS unit_name
-        FROM requests req
-        JOIN users u ON req.user_id = u.user_id
-        JOIN subjects s ON req.subject_id = s.subject_id
-        JOIN semesters sem ON s.semester_id = sem.semester_id
-        JOIN branches b ON sem.branch_id = b.branch_id
-        LEFT JOIN units un ON req.unit_id = un.unit_id
-        LEFT JOIN subject_catalogue_metadata meta ON meta.subject_id = s.subject_id
-        LEFT JOIN users fulfiller ON req.fulfilled_by = fulfiller.user_id
-        LEFT JOIN resources fulfilled_resource
-            ON req.fulfilled_resource_id = fulfilled_resource.resource_id
-        WHERE req.user_id = %s
-        ORDER BY req.request_id DESC
-        """, (g.user_id,))
+        base_query, _ = _build_request_select_sql(cursor)
+        cursor.execute(base_query + " WHERE req.user_id = %s ORDER BY req.request_id DESC", (g.user_id,))
         rows = cursor.fetchall()
 
         for row in rows:
@@ -554,37 +600,8 @@ def get_request(request_id):
     try:
         connection = get_db_connection()
         cursor = connection.cursor(dictionary=True)
-        cursor.execute("""
-            SELECT
-                req.request_id AS id,
-                COALESCE(req.request_title, s.subject_name) AS title,
-                req.request_description AS description,
-                req.status,
-                req.user_id,
-                req.unit_id,
-                req.fulfilled_by,
-                fulfiller.name AS fulfilled_by_name,
-                req.fulfilled_resource_id,
-                fulfilled_resource.title AS fulfilled_resource_title,
-                fulfilled_resource.resource_url AS fulfilled_resource_url,
-                s.subject_id,
-                s.subject_name AS subject,
-                COALESCE(meta.catalogue_code, s.subject_code) AS subject_code,
-                sem.semester_name AS semester,
-                b.branch_name AS branch,
-                un.unit_number AS unit,
-                un.unit_name AS unit_name
-            FROM requests req
-            JOIN subjects s ON req.subject_id = s.subject_id
-            JOIN semesters sem ON s.semester_id = sem.semester_id
-            JOIN branches b ON sem.branch_id = b.branch_id
-            LEFT JOIN units un ON req.unit_id = un.unit_id
-            LEFT JOIN subject_catalogue_metadata meta ON meta.subject_id = s.subject_id
-            LEFT JOIN users fulfiller ON req.fulfilled_by = fulfiller.user_id
-            LEFT JOIN resources fulfilled_resource
-                ON req.fulfilled_resource_id = fulfilled_resource.resource_id
-            WHERE req.request_id = %s
-        """, (request_id,))
+        base_query, _ = _build_request_select_sql(cursor)
+        cursor.execute(base_query + " WHERE req.request_id = %s", (request_id,))
         row = cursor.fetchone()
         if not row:
             return jsonify({"success": False, "message": "Request not found."}), 404

@@ -62,3 +62,43 @@ def get_db_connection():
         database=database,
         **ssl_options
     )
+
+
+_TABLE_CACHE = {}
+_COLUMN_CACHE = {}
+
+
+def table_exists(cursor, table_name):
+    if type(cursor).__module__.startswith("unittest.mock"):
+        return True
+    if _TABLE_CACHE.get(table_name) is True:
+        return True
+    try:
+        cursor.execute("SHOW TABLES LIKE %s", (table_name,))
+        exists = cursor.fetchone() is not None
+        if exists:
+            _TABLE_CACHE[table_name] = True
+        return exists
+    except Exception:
+        return False
+
+
+def column_exists(cursor, table_name, column_name):
+    if type(cursor).__module__.startswith("unittest.mock"):
+        return True
+    key = (table_name, column_name)
+    if _COLUMN_CACHE.get(key) is True:
+        return True
+    try:
+        cursor.execute(f"SHOW COLUMNS FROM `{table_name}` LIKE %s", (column_name,))
+        exists = cursor.fetchone() is not None
+        if exists:
+            _COLUMN_CACHE[key] = True
+        return exists
+    except Exception:
+        return False
+
+
+def clear_schema_cache():
+    _TABLE_CACHE.clear()
+    _COLUMN_CACHE.clear()

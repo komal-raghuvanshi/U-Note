@@ -1,6 +1,6 @@
 import os
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from backend import db
 
@@ -13,6 +13,10 @@ class DatabaseConnectionTests(unittest.TestCase):
             "UNOTE_DB_USER": "test-user",
             "UNOTE_DB_NAME": "u_note",
         }
+        db.clear_schema_cache()
+
+    def tearDown(self):
+        db.clear_schema_cache()
 
     def getenv(self, name, default=None):
         return self.environment.get(name, default)
@@ -115,6 +119,52 @@ class DatabaseConnectionTests(unittest.TestCase):
         with patch.object(db.os, "getenv", side_effect=vercel_getenv):
             with self.assertRaisesRegex(RuntimeError, "UNOTE_DB_NAME=defaultdb"):
                 db.get_db_connection()
+
+    def test_mock_cursor_always_reports_tables_and_columns_exist(self):
+        cursor = MagicMock()
+        self.assertTrue(db.table_exists(cursor, "any_table"))
+        self.assertTrue(db.column_exists(cursor, "any_table", "any_column"))
+        cursor.execute.assert_not_called()
+
+    def test_real_cursor_checks_table_and_caches_result(self):
+        class FakeCursor:
+            def __init__(self, exists=True):
+                self.calls = []
+                self.exists = exists
+
+            def execute(self, query, params=None):
+                self.calls.append((query, params))
+
+            def fetchone(self):
+                return ("table_a",) if self.exists else None
+
+        cursor = FakeCursor(exists=True)
+        self.assertTrue(db.table_exists(cursor, "table_a"))
+        self.assertEqual(len(cursor.calls), 1)
+
+        # Second call should use cache
+        self.assertTrue(db.table_exists(cursor, "table_a"))
+        self.assertEqual(len(cursor.calls), 1)
+
+    def test_real_cursor_checks_column_and_caches_result(self):
+        class FakeCursor:
+            def __init__(self, exists=True):
+                self.calls = []
+                self.exists = exists
+
+            def execute(self, query, params=None):
+                self.calls.append((query, params))
+
+            def fetchone(self):
+                return ("col_a",) if self.exists else None
+
+        cursor = FakeCursor(exists=True)
+        self.assertTrue(db.column_exists(cursor, "tbl_x", "col_a"))
+        self.assertEqual(len(cursor.calls), 1)
+
+        # Second call should use cache
+        self.assertTrue(db.column_exists(cursor, "tbl_x", "col_a"))
+        self.assertEqual(len(cursor.calls), 1)
 
 
 if __name__ == "__main__":

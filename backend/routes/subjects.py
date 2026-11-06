@@ -1,9 +1,9 @@
 from flask import Blueprint, current_app, jsonify, request
 
 try:
-    from db import get_db_connection
+    from db import get_db_connection, table_exists
 except ImportError:
-    from backend.db import get_db_connection
+    from backend.db import get_db_connection, table_exists
 
 
 subjects_bp = Blueprint("subjects", __name__)
@@ -24,22 +24,42 @@ def get_subjects():
     try:
         connection = get_db_connection()
         cursor = connection.cursor(dictionary=True)
-        query = """
-            SELECT
-                s.subject_id AS id,
-                COALESCE(meta.catalogue_code, s.subject_code) AS code,
-                s.subject_name AS name,
-                b.branch_name AS branch,
-                sem.semester_name AS semester,
-                meta.subject_category AS category,
-                meta.elective_group,
-                COALESCE(meta.is_selectable, 1) AS is_selectable,
-                COALESCE(meta.is_provisional, 0) AS is_provisional
-            FROM subjects s
-            JOIN semesters sem ON s.semester_id = sem.semester_id
-            JOIN branches b ON sem.branch_id = b.branch_id
-            LEFT JOIN subject_catalogue_metadata meta ON meta.subject_id = s.subject_id
-        """
+        has_meta = table_exists(cursor, "subject_catalogue_metadata")
+
+        if has_meta:
+            query = """
+                SELECT
+                    s.subject_id AS id,
+                    COALESCE(meta.catalogue_code, s.subject_code) AS code,
+                    s.subject_name AS name,
+                    b.branch_name AS branch,
+                    sem.semester_name AS semester,
+                    meta.subject_category AS category,
+                    meta.elective_group,
+                    COALESCE(meta.is_selectable, 1) AS is_selectable,
+                    COALESCE(meta.is_provisional, 0) AS is_provisional
+                FROM subjects s
+                JOIN semesters sem ON s.semester_id = sem.semester_id
+                JOIN branches b ON sem.branch_id = b.branch_id
+                LEFT JOIN subject_catalogue_metadata meta ON meta.subject_id = s.subject_id
+            """
+        else:
+            query = """
+                SELECT
+                    s.subject_id AS id,
+                    s.subject_code AS code,
+                    s.subject_name AS name,
+                    b.branch_name AS branch,
+                    sem.semester_name AS semester,
+                    NULL AS category,
+                    NULL AS elective_group,
+                    1 AS is_selectable,
+                    0 AS is_provisional
+                FROM subjects s
+                JOIN semesters sem ON s.semester_id = sem.semester_id
+                JOIN branches b ON sem.branch_id = b.branch_id
+            """
+
         conditions = []
         values = []
         branch = request.args.get("branch")
@@ -51,7 +71,10 @@ def get_subjects():
         if semester:
             sem_number = _semester_number(semester)
             if sem_number is None:
-                return jsonify({"error": "Semester must be between 1 and 8"}), 400
+                return jsonify({
+                    "error": "Semester must be between 1 and 8",
+                    "message": "Semester must be between 1 and 8"
+                }), 400
             conditions.append("sem.semester_name = %s")
             values.append(f"Semester {sem_number}")
         if conditions:
@@ -62,7 +85,10 @@ def get_subjects():
         return jsonify(cursor.fetchall()), 200
     except Exception:
         current_app.logger.exception("Failed to fetch subjects")
-        return jsonify({"error": "Unable to fetch subjects from the database."}), 500
+        return jsonify({
+            "error": "Unable to fetch subjects from the database.",
+            "message": "Unable to fetch subjects from the database."
+        }), 500
     finally:
         if cursor:
             cursor.close()
@@ -77,26 +103,50 @@ def get_subject_by_id(subject_id):
     try:
         connection = get_db_connection()
         cursor = connection.cursor(dictionary=True)
-        cursor.execute("""
-            SELECT
-                s.subject_id AS id,
-                COALESCE(meta.catalogue_code, s.subject_code) AS code,
-                s.subject_name AS name,
-                b.branch_name AS branch,
-                sem.semester_name AS semester,
-                meta.subject_category AS category,
-                meta.elective_group,
-                COALESCE(meta.is_selectable, 1) AS is_selectable,
-                COALESCE(meta.is_provisional, 0) AS is_provisional
-            FROM subjects s
-            JOIN semesters sem ON s.semester_id = sem.semester_id
-            JOIN branches b ON sem.branch_id = b.branch_id
-            LEFT JOIN subject_catalogue_metadata meta ON meta.subject_id = s.subject_id
-            WHERE s.subject_id = %s
-        """, (subject_id,))
+        has_meta = table_exists(cursor, "subject_catalogue_metadata")
+
+        if has_meta:
+            cursor.execute("""
+                SELECT
+                    s.subject_id AS id,
+                    COALESCE(meta.catalogue_code, s.subject_code) AS code,
+                    s.subject_name AS name,
+                    b.branch_name AS branch,
+                    sem.semester_name AS semester,
+                    meta.subject_category AS category,
+                    meta.elective_group,
+                    COALESCE(meta.is_selectable, 1) AS is_selectable,
+                    COALESCE(meta.is_provisional, 0) AS is_provisional
+                FROM subjects s
+                JOIN semesters sem ON s.semester_id = sem.semester_id
+                JOIN branches b ON sem.branch_id = b.branch_id
+                LEFT JOIN subject_catalogue_metadata meta ON meta.subject_id = s.subject_id
+                WHERE s.subject_id = %s
+            """, (subject_id,))
+        else:
+            cursor.execute("""
+                SELECT
+                    s.subject_id AS id,
+                    s.subject_code AS code,
+                    s.subject_name AS name,
+                    b.branch_name AS branch,
+                    sem.semester_name AS semester,
+                    NULL AS category,
+                    NULL AS elective_group,
+                    1 AS is_selectable,
+                    0 AS is_provisional
+                FROM subjects s
+                JOIN semesters sem ON s.semester_id = sem.semester_id
+                JOIN branches b ON sem.branch_id = b.branch_id
+                WHERE s.subject_id = %s
+            """, (subject_id,))
+
         subject = cursor.fetchone()
         if not subject:
-            return jsonify({"error": "Subject not found"}), 404
+            return jsonify({
+                "error": "Subject not found",
+                "message": "Subject not found"
+            }), 404
 
         cursor.execute("""
             SELECT unit_id AS id, unit_number, unit_name AS name
@@ -108,7 +158,10 @@ def get_subject_by_id(subject_id):
         return jsonify(subject), 200
     except Exception:
         current_app.logger.exception("Failed to fetch subject details")
-        return jsonify({"error": "Unable to fetch subject details."}), 500
+        return jsonify({
+            "error": "Unable to fetch subject details.",
+            "message": "Unable to fetch subject details."
+        }), 500
     finally:
         if cursor:
             cursor.close()
@@ -130,13 +183,19 @@ def get_units():
             if subject_id < 1:
                 raise ValueError
         except ValueError:
-            return jsonify({"error": "Subject ID must be a positive number"}), 400
+            return jsonify({
+                "error": "Subject ID must be a positive number",
+                "message": "Subject ID must be a positive number"
+            }), 400
 
     sem_number = None
     if semester:
         sem_number = _semester_number(semester)
         if sem_number is None:
-            return jsonify({"error": "Semester must be between 1 and 8"}), 400
+            return jsonify({
+                "error": "Semester must be between 1 and 8",
+                "message": "Semester must be between 1 and 8"
+            }), 400
 
     connection = None
     cursor = None
@@ -178,7 +237,10 @@ def get_units():
         return jsonify(cursor.fetchall()), 200
     except Exception:
         current_app.logger.exception("Failed to fetch units")
-        return jsonify({"error": "Unable to fetch units from the database."}), 500
+        return jsonify({
+            "error": "Unable to fetch units from the database.",
+            "message": "Unable to fetch units from the database."
+        }), 500
     finally:
         if cursor:
             cursor.close()
