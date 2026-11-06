@@ -46,7 +46,7 @@ function RequestsPage({ user, onNavigate }) {
       if (branchFilter) params.append('branch', branchFilter)
       if (statusFilter && statusFilter !== 'all') params.append('status', statusFilter)
 
-      const res = await apiFetch(`/requests?${params.toString()}`, {}, user.token)
+      const res = await apiFetch(`/requests?${params.toString()}`, {}, user?.token)
       const data = await res.json()
       if (res.ok && data.success) {
         setRequests(data.requests || [])
