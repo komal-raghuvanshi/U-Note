@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import emailjs from '@emailjs/browser'
+import { apiFetch } from '../api'
 
 function ContactPage() {
   const [submitted, setSubmitted] = useState(false)
@@ -19,33 +19,29 @@ function ContactPage() {
   }
 
   const handleSubmit = async (e) => {
-  e.preventDefault()
-  setError('')
-  setSending(true)
+    e.preventDefault()
+    setError('')
+    setSending(true)
 
-  try {
-    await emailjs.send(
-      'service_66gjvjn',
-      'template_56dcd4g',
-      {
-        name: formData.name,
-        email: formData.email,
-        subject: formData.subject,
-        message: formData.message
-      },
-      {
-        publicKey: 'ihPR3g0XLoDIxbsc8'
+    try {
+      const response = await apiFetch('/contact', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(formData)
+      })
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.message || 'Unable to send your message right now.')
       }
-    )
 
-    setSubmitted(true)
-  } catch (err) {
-    console.error('Email sending failed:', err)
-    setError('Unable to send your message right now. Please try again later.')
-  } finally {
-    setSending(false)
+      setSubmitted(true)
+    } catch (err) {
+      setError(err.message || 'Unable to send your message right now. Please try again later.')
+    } finally {
+      setSending(false)
+    }
   }
-}
 
   return (
     <div className="contact-page-container">

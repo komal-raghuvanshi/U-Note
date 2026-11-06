@@ -320,12 +320,11 @@ JOIN semesters sem
 JOIN subjects s
   ON s.semester_id = sem.semester_id
  AND (s.subject_code = seed.catalogue_code OR s.subject_name = seed.subject_name)
-ON DUPLICATE KEY UPDATE
-    catalogue_code = VALUES(catalogue_code),
-    subject_category = VALUES(subject_category),
-    elective_group = VALUES(elective_group),
-    is_selectable = VALUES(is_selectable),
-    is_provisional = VALUES(is_provisional);
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM subject_catalogue_metadata existing_meta
+    WHERE existing_meta.subject_id = s.subject_id
+);
 
 -- --------------------------------------------------------------------
 -- STEP 8: Seed Units 1 through 5 for All Subjects (if missing)
