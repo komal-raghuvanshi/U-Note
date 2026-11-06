@@ -385,6 +385,52 @@ class ResourceRouteTests(unittest.TestCase):
         self.assertEqual(os.listdir(self.upload_directory.name), [])
         connection.commit.assert_not_called()
 
+    def test_request_fulfillment_is_blocked_without_link_columns(self):
+        cursor = MagicMock()
+        cursor.fetchone.side_effect = [
+            {"branch_id": 2, "branch_name": "AIML"},
+            {"semester_id": 8, "semester_name": "Semester 4"},
+        ]
+        connection = MagicMock()
+        connection.cursor.return_value = cursor
+
+        def schema_column_exists(_cursor, table_name, column_name):
+            return not (
+                table_name == "requests"
+                and column_name in ("fulfilled_by", "fulfilled_resource_id")
+            )
+
+        with patch.object(resources, "get_db_connection", return_value=connection), \
+             patch.object(resources, "column_exists", side_effect=schema_column_exists):
+            response = self.client.post(
+                "/resources/upload",
+                data={
+                    "file": (BytesIO(b"resource content"), "notes.pdf"),
+                    "title": "Machine Learning notes",
+                    "branch": "AIML",
+                    "semester": "4",
+                    "subject": "Machine Learning",
+                    "unit": "all",
+                    "type": "PDF Notes",
+                    "request_id": "41",
+                },
+                content_type="multipart/form-data",
+                headers=self.auth_headers(42),
+            )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("linked-resource support", response.get_json()["message"])
+        self.assertFalse(any(
+            "INSERT INTO resources" in call.args[0]
+            for call in cursor.execute.call_args_list
+        ))
+        self.assertFalse(any(
+            "UPDATE requests" in call.args[0]
+            for call in cursor.execute.call_args_list
+        ))
+        self.assertEqual(os.listdir(self.upload_directory.name), [])
+        connection.commit.assert_not_called()
+
     def test_teacher_upload_fulfills_request_with_equal_permissions(self):
         self.assert_upload_fulfills_request("teacher")
 

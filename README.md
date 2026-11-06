@@ -7,7 +7,7 @@ U-NOTE is a React + Vite frontend and Flask + MySQL platform for sharing and fin
 - Browse resources from MySQL and filter by branch, semester, subject, unit, search term, and resource type.
 - Upload PDFs and images, or submit YouTube resource links, with branch → semester → subject → unit metadata.
 - View and download uploaded files, rate resources, save resources, and delete a resource only as its authenticated uploader.
-- Create and track study-resource requests. Request owners and authenticated teachers can update request status.
+- Browse community study requests publicly, with requester identities hidden from anonymous viewers. Authenticated users can submit and manage their own requests; identical pending requests are rejected and fulfillment occurs by linking a shared resource.
 - Create accounts, log in, and update profile name and academic information.
 
 ## Local setup

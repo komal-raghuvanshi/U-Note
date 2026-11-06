@@ -39,12 +39,6 @@ function RequestsPage({ user, onNavigate }) {
 
   // Fetch community requests
   const fetchRequests = useCallback(async () => {
-    if (!user?.token) {
-      setRequests([])
-      setLoading(false)
-      return
-    }
-
     setLoading(true)
     setError('')
     try {
@@ -573,24 +567,7 @@ function RequestsPage({ user, onNavigate }) {
           )}
 
           {/* Tab 2 & 3: Browse All or My Requests */}
-          {activeTab !== 'create' && !user?.token && (
-            <div className="prototype-badge-box" style={{ backgroundColor: '#eff6ff', borderColor: '#bfdbfe' }}>
-              <span className="prototype-badge-pill" style={{ backgroundColor: '#1d4ed8' }}>Login Needed</span>
-              <p className="prototype-badge-text" style={{ color: '#1e40af' }}>
-                Please{' '}
-                <button
-                  type="button"
-                  onClick={() => onNavigate('/login')}
-                  style={{ background: 'none', border: 'none', color: '#1d4ed8', fontWeight: 700, cursor: 'pointer', textDecoration: 'underline' }}
-                >
-                  log in
-                </button>{' '}
-                to view community requests.
-              </p>
-            </div>
-          )}
-
-          {activeTab !== 'create' && user?.token && (
+          {activeTab !== 'create' && (
             <>
               {/* Filter controls */}
               <div className="filters-card requests-filter-card">
@@ -739,16 +716,20 @@ function RequestsPage({ user, onNavigate }) {
                         <div className="request-footer">
                           <div className="request-user-info">
                             <span className="request-avatar-circle">
-                              {(req.user_name || 'U').charAt(0).toUpperCase()}
+                              {(req.user_name || 'Community member').charAt(0).toUpperCase()}
                             </span>
                             <div>
-                              <p className="request-user-name">{req.user_name || 'Student'}</p>
-                              <span className="request-user-role">{req.user_role === 'teacher' ? 'Faculty Member' : 'Student'}</span>
+                              <p className="request-user-name">{req.user_name || 'Community member'}</p>
+                              {req.user_role && (
+                                <span className="request-user-role">
+                                  {req.user_role === 'teacher' ? 'Faculty Member' : 'Student'}
+                                </span>
+                              )}
                             </div>
                           </div>
 
                           <div className="request-actions">
-                            {isPending && (
+                            {isPending && user?.token && (
                               <button
                                 type="button"
                                 className="btn btn-secondary btn-sm"

@@ -722,6 +722,11 @@ def upload_resource():
             column_exists(cursor, "requests", "fulfilled_by")
             and column_exists(cursor, "requests", "fulfilled_resource_id")
         )
+        if request_id is not None and not has_fulfill_cols:
+            return jsonify({
+                "success": False,
+                "message": "Request fulfillment is unavailable until linked-resource support is enabled in the database."
+            }), 503
 
         # 3. Validate Subject for this Semester
         if has_meta:
@@ -913,28 +918,17 @@ def upload_resource():
         new_resource_id = cursor.lastrowid
 
         if request_id is not None:
-            if has_fulfill_cols:
-                cursor.execute(
-                    """
-                    UPDATE requests
-                    SET status = 'Fulfilled',
-                        fulfilled_by = %s,
-                        fulfilled_resource_id = %s
-                    WHERE request_id = %s
-                      AND status = 'Pending'
-                    """,
-                    (uploaded_by, new_resource_id, request_id)
-                )
-            else:
-                cursor.execute(
-                    """
-                    UPDATE requests
-                    SET status = 'Fulfilled'
-                    WHERE request_id = %s
-                      AND status = 'Pending'
-                    """,
-                    (request_id,)
-                )
+            cursor.execute(
+                """
+                UPDATE requests
+                SET status = 'Fulfilled',
+                    fulfilled_by = %s,
+                    fulfilled_resource_id = %s
+                WHERE request_id = %s
+                  AND status = 'Pending'
+                """,
+                (uploaded_by, new_resource_id, request_id)
+            )
             if cursor.rowcount != 1:
                 raise RequestFulfillmentConflict
 

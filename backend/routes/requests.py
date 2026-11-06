@@ -1,15 +1,15 @@
 from flask import Blueprint, jsonify, request, current_app, g
 
 try:
-    from auth_utils import require_auth
+    from auth_utils import authenticated_user_id, require_auth
     from db import get_db_connection, table_exists, column_exists
 except ImportError:
-    from backend.auth_utils import require_auth
+    from backend.auth_utils import authenticated_user_id, require_auth
     from backend.db import get_db_connection, table_exists, column_exists
 
 requests_bp = Blueprint("requests", __name__)
 
-def _build_request_select_sql(cursor):
+def _build_request_select_sql(cursor, include_user_details=True):
     has_meta = table_exists(cursor, "subject_catalogue_metadata")
     has_title = column_exists(cursor, "requests", "request_title")
     has_fulfill = (
@@ -19,12 +19,15 @@ def _build_request_select_sql(cursor):
     title_sql = "COALESCE(req.request_title, s.subject_name) AS title," if has_title else "s.subject_name AS title,"
     if has_fulfill:
         fulfill_cols = """
-            req.fulfilled_by,
-            fulfiller.name AS fulfilled_by_name,
+            {fulfilled_by}
+            {fulfilled_by_name}
             req.fulfilled_resource_id,
             fulfilled_resource.title AS fulfilled_resource_title,
             fulfilled_resource.resource_url AS fulfilled_resource_url,
-        """
+        """.format(
+            fulfilled_by="req.fulfilled_by," if include_user_details else "NULL AS fulfilled_by,",
+            fulfilled_by_name="fulfiller.name AS fulfilled_by_name," if include_user_details else "NULL AS fulfilled_by_name,",
+        )
         fulfill_joins = """
             LEFT JOIN users fulfiller ON req.fulfilled_by = fulfiller.user_id
             LEFT JOIN resources fulfilled_resource
@@ -43,6 +46,11 @@ def _build_request_select_sql(cursor):
 
     meta_code = "COALESCE(meta.catalogue_code, s.subject_code) AS subject_code," if has_meta else "s.subject_code AS subject_code,"
     meta_join = "LEFT JOIN subject_catalogue_metadata meta ON meta.subject_id = s.subject_id" if has_meta else ""
+    user_cols = (
+        "u.user_id,\n            u.name AS user_name,\n            u.role AS user_role,"
+        if include_user_details
+        else "NULL AS user_id,\n            NULL AS user_name,\n            NULL AS user_role,"
+    )
 
     base_query = f"""
         SELECT
@@ -52,9 +60,7 @@ def _build_request_select_sql(cursor):
             req.status,
             {fulfill_cols}
             req.created_at,
-            u.user_id,
-            u.name AS user_name,
-            u.role AS user_role,
+            {user_cols}
             s.subject_id,
             s.subject_name AS subject,
             {meta_code}
@@ -76,7 +82,6 @@ def _build_request_select_sql(cursor):
 
 
 @requests_bp.route("/requests", methods=["GET"])
-@require_auth
 def get_requests():
     branch = request.args.get("branch")
     semester = request.args.get("semester")
@@ -111,7 +116,10 @@ def get_requests():
     try:
         connection = get_db_connection()
         cursor = connection.cursor(dictionary=True)
-        base_query, has_meta = _build_request_select_sql(cursor)
+        base_query, has_meta = _build_request_select_sql(
+            cursor,
+            include_user_details=authenticated_user_id() is not None,
+        )
 
         if subject:
             if has_meta:
@@ -264,7 +272,10 @@ def create_request():
         connection = get_db_connection()
         cursor = connection.cursor(dictionary=True)
         # Validate user
-        cursor.execute("SELECT user_id, name FROM users WHERE user_id = %s", (g.user_id,))
+        cursor.execute(
+            "SELECT user_id, name FROM users WHERE user_id = %s FOR UPDATE",
+            (g.user_id,)
+        )
         user_row = cursor.fetchone()
         if not user_row:
             return jsonify({"success": False, "message": "User not found."}), 401
@@ -276,6 +287,27 @@ def create_request():
             return jsonify({"success": False, "message": validation_error}), 400
 
         has_title = column_exists(cursor, "requests", "request_title")
+        duplicate_query = """
+            SELECT request_id
+            FROM requests
+            WHERE user_id = %s
+              AND subject_id = %s
+              AND unit_id <=> %s
+              AND LOWER(TRIM(request_description)) = LOWER(%s)
+              AND status = 'Pending'
+        """
+        duplicate_values = [g.user_id, subject_id, unit_id, description]
+        if has_title:
+            duplicate_query += " AND LOWER(TRIM(request_title)) = LOWER(%s)"
+            duplicate_values.append(title)
+        duplicate_query += " LIMIT 1"
+        cursor.execute(duplicate_query, duplicate_values)
+        if cursor.fetchone():
+            return jsonify({
+                "success": False,
+                "message": "An identical pending request already exists for this subject and unit."
+            }), 409
+
         if has_title:
             cursor.execute("""
                 INSERT INTO requests

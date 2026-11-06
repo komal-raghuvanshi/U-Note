@@ -38,6 +38,7 @@ class RequestRouteTests(unittest.TestCase):
         cursor.fetchone.side_effect = [
             {"user_id": 7, "name": "Student A"},
             {"subject_id": 10, "subject_name": "Machine Learning"},
+            None,
         ]
         connection = MagicMock()
         connection.cursor.return_value = cursor
@@ -71,6 +72,7 @@ class RequestRouteTests(unittest.TestCase):
             {"user_id": 7, "name": "Student A"},
             {"subject_id": 10, "subject_name": "Machine Learning"},
             {"unit_id": 88},
+            None,
         ]
         connection = MagicMock()
         connection.cursor.return_value = cursor
@@ -98,6 +100,41 @@ class RequestRouteTests(unittest.TestCase):
             (7, 10, 88, "Machine Learning", "Need Unit 8 notes")
         )
         connection.commit.assert_called_once()
+
+    def test_identical_pending_request_is_rejected(self):
+        cursor = MagicMock()
+        cursor.fetchone.side_effect = [
+            {"user_id": 7, "name": "Student A"},
+            {"subject_id": 10, "subject_name": "Machine Learning"},
+            {"request_id": 40},
+        ]
+        connection = MagicMock()
+        connection.cursor.return_value = cursor
+
+        with patch.object(requests_routes, "get_db_connection", return_value=connection):
+            response = self.client.post(
+                "/requests",
+                json={
+                    "title": "Machine Learning notes",
+                    "branch": "AIML",
+                    "semester": 4,
+                    "subject": "Machine Learning",
+                    "unit": "all",
+                    "description": "Need notes",
+                },
+                headers=self.auth_headers(7),
+            )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(
+            response.get_json()["message"],
+            "An identical pending request already exists for this subject and unit."
+        )
+        self.assertFalse(any(
+            "INSERT INTO requests" in call.args[0]
+            for call in cursor.execute.call_args_list
+        ))
+        connection.commit.assert_not_called()
 
     def test_student_cannot_update_another_users_request(self):
         cursor = MagicMock()
@@ -203,12 +240,39 @@ class RequestRouteTests(unittest.TestCase):
         self.assertEqual(data["requests"][0]["user_id"], 7)
         self.assertEqual(data["requests"][0]["user_name"], "Test User")
 
-    def test_get_requests_requires_a_signed_session(self):
-        with patch.object(requests_routes, "get_db_connection") as get_connection:
+    def test_public_request_list_hides_requester_and_fulfiller_identity(self):
+        cursor = MagicMock()
+        cursor.fetchall.return_value = [{
+            "id": 41,
+            "description": "Need study notes",
+            "status": "Pending",
+            "created_at": None,
+            "user_id": None,
+            "user_name": None,
+            "user_role": None,
+            "fulfilled_by": None,
+            "fulfilled_by_name": None,
+            "fulfilled_resource_id": None,
+            "semester": "Semester 4",
+        }]
+        connection = MagicMock()
+        connection.cursor.return_value = cursor
+
+        with patch.object(requests_routes, "get_db_connection", return_value=connection):
             response = self.client.get("/requests")
 
-        self.assertEqual(response.status_code, 401)
-        get_connection.assert_not_called()
+        self.assertEqual(response.status_code, 200)
+        request_data = response.get_json()["requests"][0]
+        self.assertIsNone(request_data["user_id"])
+        self.assertIsNone(request_data["user_name"])
+        self.assertIsNone(request_data["user_role"])
+        self.assertIsNone(request_data["fulfilled_by"])
+        self.assertIsNone(request_data["fulfilled_by_name"])
+        query, parameters = cursor.execute.call_args.args
+        self.assertIn("NULL AS user_id", query)
+        self.assertIn("NULL AS user_name", query)
+        self.assertIn("NULL AS fulfilled_by_name", query)
+        self.assertEqual(parameters, [])
 
     def test_student_can_view_another_users_request(self):
         cursor = MagicMock()
@@ -232,6 +296,8 @@ class RequestRouteTests(unittest.TestCase):
         self.assertEqual(response.get_json()["requests"][0]["user_id"], 7)
         self.assertEqual(response.get_json()["requests"][0]["user_name"], "Student A")
         query, parameters = cursor.execute.call_args.args
+        self.assertIn("u.user_id", query)
+        self.assertIn("u.name AS user_name", query)
         self.assertNotIn("WHERE req.user_id = %s", query)
         self.assertEqual(parameters, [])
 
