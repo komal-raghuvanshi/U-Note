@@ -22,7 +22,9 @@ function ShareResource({ onBack, onNavigate, user, requestId }) {
     semester: '',
     subject: '',
     unit: '',
-    type: ''
+    type: '',
+    exam_year: '',
+    exam_session: ''
   })
 
   const [unitOptions, setUnitOptions] = useState([])
@@ -36,6 +38,9 @@ function ShareResource({ onBack, onNavigate, user, requestId }) {
     semestersLoading,
   } = useAcademicOptions(formData.branch, formData.semester)
   const isYouTubeResource = formData.type.toLowerCase().includes('youtube')
+  const isPYQResource =
+    formData.type.toLowerCase().includes('previous year') ||
+    formData.type.toLowerCase().includes('pyq')
 
   useEffect(() => {
     let ignore = false
@@ -121,9 +126,11 @@ function ShareResource({ onBack, onNavigate, user, requestId }) {
 
   const handleChange = (e) => {
     const { name, value } = e.target
+    const isNowPYQ = name === 'type' && (value.toLowerCase().includes('previous year') || value.toLowerCase().includes('pyq'))
     setFormData((prev) => ({
       ...prev,
       [name]: value,
+      ...(name === 'type' && !isNowPYQ ? { exam_year: '', exam_session: '' } : {}),
       ...(name === 'branch'
         ? { semester: '', subject: '', unit: '' }
         : name === 'semester'
@@ -176,6 +183,10 @@ function ShareResource({ onBack, onNavigate, user, requestId }) {
     data.append('subject', formData.subject)
     data.append('unit', formData.unit)
     data.append('type', formData.type)
+    if (isPYQResource) {
+      if (formData.exam_year) data.append('exam_year', formData.exam_year)
+      if (formData.exam_session) data.append('exam_session', formData.exam_session)
+    }
     if (requestId) data.append('request_id', requestId)
     if (youtubeUrl) data.append('youtube_url', youtubeUrl)
 
@@ -463,6 +474,43 @@ function ShareResource({ onBack, onNavigate, user, requestId }) {
                   <option value="Teacher Resources">Teacher Resources</option>
                 </select>
               </div>
+
+              {isPYQResource && (
+                <div className="form-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '1rem' }}>
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label htmlFor="exam_year">Exam Year *</label>
+                    <select
+                      id="exam_year"
+                      name="exam_year"
+                      className="form-control"
+                      value={formData.exam_year}
+                      onChange={handleChange}
+                      required={isPYQResource}
+                    >
+                      <option value="">Select Exam Year</option>
+                      {[2026, 2025, 2024, 2023, 2022, 2021, 2020, 2019, 2018, 2017, 2016, 2015].map((yr) => (
+                        <option key={yr} value={yr}>{yr}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label htmlFor="exam_session">Exam Session *</label>
+                    <select
+                      id="exam_session"
+                      name="exam_session"
+                      className="form-control"
+                      value={formData.exam_session}
+                      onChange={handleChange}
+                      required={isPYQResource}
+                    >
+                      <option value="">Select Exam Session</option>
+                      <option value="June">June (Even Semesters)</option>
+                      <option value="December">December (Odd Semesters)</option>
+                    </select>
+                  </div>
+                </div>
+              )}
 
               <div className="form-group">
                 <label htmlFor="description">Description (Optional)</label>

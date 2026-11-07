@@ -617,6 +617,107 @@ class ResourceRouteTests(unittest.TestCase):
         query = cursor.execute.call_args.args[0]
         self.assertNotIn("subject_catalogue_metadata", query)
 
+    def test_upload_pyq_with_exam_metadata_persists_fields(self):
+        cursor = MagicMock()
+        cursor.lastrowid = 105
+        cursor.fetchone.side_effect = [
+            {"branch_id": 2, "branch_name": "AIML"},
+            {"semester_id": 8, "semester_name": "Semester 4"},
+            {"subject_id": 13, "subject_name": "Machine Learning", "subject_code": "AL-405"},
+            {"user_id": 42},
+        ]
+        connection = MagicMock()
+        connection.cursor.return_value = cursor
+
+        with patch.object(resources, "get_db_connection", return_value=connection):
+            response = self.client.post(
+                "/resources/upload",
+                data={
+                    "file": (BytesIO(b"pyq paper content"), "pyq2023.pdf"),
+                    "title": "Machine Learning End Sem 2023",
+                    "branch": "AIML",
+                    "semester": "4",
+                    "subject": "Machine Learning",
+                    "unit": "all",
+                    "type": "Previous Year Question Papers",
+                    "exam_year": "2023",
+                    "exam_session": "June",
+                },
+                content_type="multipart/form-data",
+                headers=self.auth_headers(42),
+            )
+
+        self.assertEqual(response.status_code, 201, response.get_json())
+        data = response.get_json()
+        self.assertEqual(data["resource"]["exam_year"], 2023)
+        self.assertEqual(data["resource"]["exam_session"], "June")
+
+        insert_call = next(
+            call for call in cursor.execute.call_args_list
+            if call.args[0].lstrip().startswith("INSERT INTO resources")
+        )
+        self.assertIn("exam_year", insert_call.args[0])
+        self.assertIn("exam_session", insert_call.args[0])
+        self.assertEqual(insert_call.args[1][8], 2023)
+        self.assertEqual(insert_call.args[1][9], "June")
+
+    def test_resources_filtering_by_exam_year_and_session(self):
+        sample_resources = [
+            {
+                "id": 1,
+                "title": "PYQ June 2023",
+                "type": "Previous Year Question Papers",
+                "exam_year": 2023,
+                "exam_session": "June",
+                "branch": "AIML",
+                "semester": 4,
+                "subject": "Machine Learning",
+                "unit": "all",
+            },
+            {
+                "id": 2,
+                "title": "PYQ Dec 2022",
+                "type": "Previous Year Question Papers",
+                "exam_year": 2022,
+                "exam_session": "December",
+                "branch": "AIML",
+                "semester": 4,
+                "subject": "Machine Learning",
+                "unit": "all",
+            },
+            {
+                "id": 3,
+                "title": "Regular Notes without exam metadata",
+                "type": "PDF Notes",
+                "exam_year": None,
+                "exam_session": None,
+                "branch": "AIML",
+                "semester": 4,
+                "subject": "Machine Learning",
+                "unit": "all",
+            },
+        ]
+
+        with patch.object(resources, "_fetch_all_resources", return_value=sample_resources):
+            # Filter by year
+            resp_year = self.client.get("/resources?type=pyq&exam_year=2023")
+            self.assertEqual(resp_year.status_code, 200)
+            items = resp_year.get_json()["resources"]
+            self.assertEqual(len(items), 1)
+            self.assertEqual(items[0]["id"], 1)
+
+            # Filter by session
+            resp_sess = self.client.get("/resources?type=pyq&exam_session=december")
+            self.assertEqual(resp_sess.status_code, 200)
+            items_sess = resp_sess.get_json()["resources"]
+            self.assertEqual(len(items_sess), 1)
+            self.assertEqual(items_sess[0]["id"], 2)
+
+            # Backward compatibility: all resources returned when no exam filter
+            resp_all = self.client.get("/resources")
+            self.assertEqual(resp_all.status_code, 200)
+            self.assertEqual(len(resp_all.get_json()["resources"]), 3)
+
 
 if __name__ == "__main__":
     unittest.main()

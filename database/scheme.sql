@@ -114,6 +114,8 @@ CREATE TABLE IF NOT EXISTS resources (
     unit_id INT NULL,
     unit_scope ENUM('unit', 'all') NOT NULL DEFAULT 'unit',
     description TEXT NULL,
+    exam_year INT NULL,
+    exam_session VARCHAR(20) NULL,
     FOREIGN KEY (subject_id)
         REFERENCES subjects(subject_id),
     FOREIGN KEY (uploaded_by)

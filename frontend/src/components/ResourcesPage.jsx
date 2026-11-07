@@ -2,6 +2,15 @@ import { useState, useEffect, useCallback } from 'react'
 import { apiFetch, apiUrl } from '../api'
 import { useAcademicOptions } from '../hooks/useAcademicOptions'
 
+function normalizeCategoryType(val) {
+  if (!val) return ''
+  const lower = String(val).toLowerCase()
+  if (lower.includes('previous year') || lower.includes('pyq')) {
+    return 'Previous Year Question Papers'
+  }
+  return val
+}
+
 function ResourcesPage({ onSelectResource, onShareClick, initialType = '', user }) {
   const [resources, setResources] = useState([])
   const [savedResourceIds, setSavedResourceIds] = useState([])
@@ -16,7 +25,9 @@ function ResourcesPage({ onSelectResource, onShareClick, initialType = '', user 
   const [semester, setSemester] = useState('')
   const [subject, setSubject] = useState('')
   const [unit, setUnit] = useState('')
-  const [type, setType] = useState(initialType)
+  const [type, setType] = useState(() => normalizeCategoryType(initialType))
+  const [examYear, setExamYear] = useState('')
+  const [examSession, setExamSession] = useState('')
 
   // Dynamic unit list fetched from backend for selected subject
   const [unitOptions, setUnitOptions] = useState([])
@@ -139,6 +150,8 @@ function ResourcesPage({ onSelectResource, onShareClick, initialType = '', user 
     const activeSubject = queryOverride.subject !== undefined ? queryOverride.subject : subject
     const activeUnit = queryOverride.unit !== undefined ? queryOverride.unit : unit
     const activeType = queryOverride.type !== undefined ? queryOverride.type : type
+    const activeExamYear = queryOverride.exam_year !== undefined ? queryOverride.exam_year : examYear
+    const activeExamSession = queryOverride.exam_session !== undefined ? queryOverride.exam_session : examSession
 
     const params = new URLSearchParams()
     if (activeSearch && activeSearch.trim()) params.append('search', activeSearch.trim())
@@ -147,6 +160,8 @@ function ResourcesPage({ onSelectResource, onShareClick, initialType = '', user 
     if (activeSubject && activeSubject.trim()) params.append('subject', activeSubject.trim())
     if (activeUnit) params.append('unit', activeUnit)
     if (activeType) params.append('type', activeType)
+    if (activeExamYear) params.append('exam_year', activeExamYear)
+    if (activeExamSession) params.append('exam_session', activeExamSession)
 
     apiFetch(`/resources?${params.toString()}`)
       .then(async (res) => {
@@ -165,13 +180,15 @@ function ResourcesPage({ onSelectResource, onShareClick, initialType = '', user 
         setResources([])
         setLoading(false)
       })
-  }, [search, branch, semester, subject, unit, type])
+  }, [search, branch, semester, subject, unit, type, examYear, examSession])
 
   // Initial load respecting initialType
   useEffect(() => {
     let ignore = false
+    const normalized = normalizeCategoryType(initialType)
+    setType(normalized)
     const params = new URLSearchParams()
-    if (initialType) params.append('type', initialType)
+    if (normalized) params.append('type', normalized)
 
     setResourceError('')
     apiFetch(`/resources?${params.toString()}`)
@@ -224,9 +241,27 @@ function ResourcesPage({ onSelectResource, onShareClick, initialType = '', user 
     loadResources({ unit: newUnit })
   }
 
+  const isPYQ = (t) => (t || '').toLowerCase().includes('previous year') || (t || '').toLowerCase().includes('pyq')
+
   const handleTypeChange = (newType) => {
     setType(newType)
-    loadResources({ type: newType })
+    if (!isPYQ(newType)) {
+      setExamYear('')
+      setExamSession('')
+      loadResources({ type: newType, exam_year: '', exam_session: '' })
+    } else {
+      loadResources({ type: newType })
+    }
+  }
+
+  const handleExamYearChange = (newYear) => {
+    setExamYear(newYear)
+    loadResources({ exam_year: newYear })
+  }
+
+  const handleExamSessionChange = (newSession) => {
+    setExamSession(newSession)
+    loadResources({ exam_session: newSession })
   }
 
   const handleSearchSubmit = (e) => {
@@ -241,13 +276,17 @@ function ResourcesPage({ onSelectResource, onShareClick, initialType = '', user 
     setSubject('')
     setUnit('')
     setType('')
+    setExamYear('')
+    setExamSession('')
     loadResources({
       search: '',
       branch: '',
       semester: '',
       subject: '',
       unit: '',
-      type: ''
+      type: '',
+      exam_year: '',
+      exam_session: ''
     })
   }
 
@@ -394,6 +433,39 @@ function ResourcesPage({ onSelectResource, onShareClick, initialType = '', user 
               </select>
             </div>
 
+            {isPYQ(type) && (
+              <>
+                <div className="filter-item">
+                  <label htmlFor="filter-exam-year">Exam Year</label>
+                  <select
+                    id="filter-exam-year"
+                    className="form-control"
+                    value={examYear}
+                    onChange={(e) => handleExamYearChange(e.target.value)}
+                  >
+                    <option value="">All Years</option>
+                    {[2026, 2025, 2024, 2023, 2022, 2021, 2020, 2019, 2018, 2017, 2016, 2015].map((yr) => (
+                      <option key={yr} value={yr}>{yr}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="filter-item">
+                  <label htmlFor="filter-exam-session">Exam Session</label>
+                  <select
+                    id="filter-exam-session"
+                    className="form-control"
+                    value={examSession}
+                    onChange={(e) => handleExamSessionChange(e.target.value)}
+                  >
+                    <option value="">All Sessions</option>
+                    <option value="June">June</option>
+                    <option value="December">December</option>
+                  </select>
+                </div>
+              </>
+            )}
+
             <div className="filter-item filter-reset-item">
               <label>&nbsp;</label>
               <button
@@ -482,7 +554,25 @@ function ResourcesPage({ onSelectResource, onShareClick, initialType = '', user 
                     {resource.subject_code ? `${resource.subject_code} - ` : ''}
                     {resource.subject} · {resource.unit_label || `Unit ${resource.unit}`}
                   </p>
-                  <p className="resource-description">{resource.type}</p>
+                  <p className="resource-description">
+                    {resource.type}
+                    {(resource.exam_year || resource.exam_session) && (
+                      <span
+                        className="pyq-session-badge"
+                        style={{
+                          marginLeft: '0.45rem',
+                          padding: '0.15rem 0.45rem',
+                          fontSize: '0.75rem',
+                          fontWeight: 600,
+                          borderRadius: '4px',
+                          backgroundColor: '#e0e7ff',
+                          color: '#3730a3'
+                        }}
+                      >
+                        {[resource.exam_session, resource.exam_year].filter(Boolean).join(' ')}
+                      </span>
+                    )}
+                  </p>
 
                   <div style={{ marginTop: '0.85rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                     <button

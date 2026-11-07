@@ -80,6 +80,8 @@ def _fetch_all_resources(owner_id=None):
         has_verified = column_exists(cursor, "resources", "is_verified")
         has_downloads = column_exists(cursor, "resources", "download_count")
         has_reports = table_exists(cursor, "resource_reports")
+        has_exam_year = column_exists(cursor, "resources", "exam_year")
+        has_exam_session = column_exists(cursor, "resources", "exam_session")
 
         meta_join = "LEFT JOIN subject_catalogue_metadata meta ON meta.subject_id = s.subject_id" if has_meta else ""
         meta_code = "COALESCE(meta.catalogue_code, s.subject_code) AS subject_code," if has_meta else "s.subject_code AS subject_code,"
@@ -87,6 +89,8 @@ def _fetch_all_resources(owner_id=None):
         approval_col = "r.approval_status AS approval_status," if has_approval else "'approved' AS approval_status,"
         verified_col = "r.is_verified AS is_verified," if has_verified else "0 AS is_verified,"
         downloads_col = "r.download_count AS download_count," if has_downloads else "0 AS download_count,"
+        exam_year_col = "r.exam_year AS exam_year," if has_exam_year else "NULL AS exam_year,"
+        exam_session_col = "r.exam_session AS exam_session," if has_exam_session else "NULL AS exam_session,"
 
         reports_join = """
             LEFT JOIN (
@@ -116,6 +120,8 @@ def _fetch_all_resources(owner_id=None):
                 {verified_col}
                 {downloads_col}
                 {reports_col}
+                {exam_year_col}
+                {exam_session_col}
                 r.created_at AS uploaded_at,
                 r.uploaded_by,
                 uploader.name AS uploader_name,
@@ -241,7 +247,9 @@ def _fetch_all_resources(owner_id=None):
                 "quality_labels": quality_labels,
                 "download_count": download_count,
                 "save_count": save_count,
-                "approval_status": row.get("approval_status") or "approved"
+                "approval_status": row.get("approval_status") or "approved",
+                "exam_year": row.get("exam_year"),
+                "exam_session": row.get("exam_session")
             })
 
         return db_resources
@@ -273,6 +281,8 @@ def get_resources():
     unit_param = request.args.get("unit")
     search = request.args.get("search")
     resource_type = request.args.get("type")
+    exam_year_raw = request.args.get("exam_year") or request.args.get("year")
+    exam_session_raw = request.args.get("exam_session") or request.args.get("session")
     target_unit = None
     all_units = False
     if unit_param:
@@ -336,6 +346,20 @@ def get_resources():
             r_type_norm = _normalize_type(resource.get("type"))
             q_type_norm = _normalize_type(resource_type)
             if r_type_norm != q_type_norm:
+                continue
+
+        if exam_year_raw:
+            try:
+                target_year = int(str(exam_year_raw).strip())
+                if resource.get("exam_year") != target_year:
+                    continue
+            except (ValueError, TypeError):
+                pass
+
+        if exam_session_raw:
+            target_sess = str(exam_session_raw).strip().lower()
+            res_sess = str(resource.get("exam_session") or "").strip().lower()
+            if res_sess != target_sess:
                 continue
 
         filtered_resources.append(resource)
@@ -545,14 +569,48 @@ def update_resource(resource_id):
                 "message": "You are not authorized to edit this resource."
             }), 403
 
-        cursor.execute(
-            """
-            UPDATE resources
-            SET title = %s, description = %s, resource_type = %s
-            WHERE resource_id = %s
-            """,
-            (title, description, resource_type, resource_id)
+        has_exam_cols = (
+            column_exists(cursor, "resources", "exam_year")
+            and column_exists(cursor, "resources", "exam_session")
         )
+
+        if has_exam_cols:
+            exam_year_val = None
+            if data.get("exam_year"):
+                try:
+                    parsed_y = int(str(data.get("exam_year")).strip())
+                    if 1990 <= parsed_y <= 2100:
+                        exam_year_val = parsed_y
+                except (ValueError, TypeError):
+                    exam_year_val = None
+
+            exam_session_val = None
+            if data.get("exam_session"):
+                sess = str(data.get("exam_session")).strip()
+                if sess.lower() in ("june", "december"):
+                    exam_session_val = sess.capitalize()
+
+            if _normalize_type(resource_type) != "pyq":
+                exam_year_val = None
+                exam_session_val = None
+
+            cursor.execute(
+                """
+                UPDATE resources
+                SET title = %s, description = %s, resource_type = %s, exam_year = %s, exam_session = %s
+                WHERE resource_id = %s
+                """,
+                (title, description, resource_type, exam_year_val, exam_session_val, resource_id)
+            )
+        else:
+            cursor.execute(
+                """
+                UPDATE resources
+                SET title = %s, description = %s, resource_type = %s
+                WHERE resource_id = %s
+                """,
+                (title, description, resource_type, resource_id)
+            )
 
         connection.commit()
 
@@ -695,6 +753,23 @@ def upload_resource():
     unit = request.form.get("unit") or req_json.get("unit")
     resource_type = _text_input(req_json, "type", "PDF Notes") or "PDF Notes"
     description = _text_input(req_json, "description")
+    exam_year_raw = request.form.get("exam_year") or req_json.get("exam_year")
+    exam_session_raw = request.form.get("exam_session") or req_json.get("exam_session")
+    exam_year = None
+    exam_session = None
+
+    if _normalize_type(resource_type) == "pyq":
+        if exam_year_raw not in (None, ""):
+            try:
+                parsed_year = int(str(exam_year_raw).strip())
+                if 1990 <= parsed_year <= 2100:
+                    exam_year = parsed_year
+            except (ValueError, TypeError):
+                pass
+        if exam_session_raw:
+            clean_sess = str(exam_session_raw).strip()
+            if clean_sess.lower() in ("june", "december"):
+                exam_session = clean_sess.capitalize()
     youtube_url = (
         _text_input(req_json, "youtube_url")
         or _text_input(req_json, "url")
@@ -962,7 +1037,32 @@ def upload_resource():
             f"{'All Units' if unit_scope == 'all' else f'Unit {unit_num}'}"
         )
 
-        if has_scope:
+        has_exam_cols = (
+            column_exists(cursor, "resources", "exam_year")
+            and column_exists(cursor, "resources", "exam_session")
+        )
+
+        if has_scope and has_exam_cols:
+            cursor.execute(
+                """
+                INSERT INTO resources
+                    (title, resource_url, resource_type, subject_id, uploaded_by, unit_id, unit_scope, description, exam_year, exam_session)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    title,
+                    final_resource_url,
+                    resource_type,
+                    subject_id,
+                    uploaded_by,
+                    unit_id,
+                    unit_scope,
+                    res_desc,
+                    exam_year,
+                    exam_session
+                )
+            )
+        elif has_scope:
             cursor.execute(
                 """
                 INSERT INTO resources
@@ -978,6 +1078,25 @@ def upload_resource():
                     unit_id,
                     unit_scope,
                     res_desc
+                )
+            )
+        elif has_exam_cols:
+            cursor.execute(
+                """
+                INSERT INTO resources
+                    (title, resource_url, resource_type, subject_id, uploaded_by, unit_id, description, exam_year, exam_session)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    title,
+                    final_resource_url,
+                    resource_type,
+                    subject_id,
+                    uploaded_by,
+                    unit_id,
+                    res_desc,
+                    exam_year,
+                    exam_session
                 )
             )
         else:
@@ -1062,7 +1181,9 @@ def upload_resource():
             "description": res_desc,
             "uploader_role": uploader_role,
             "avg_rating": None,
-            "rating_count": 0
+            "rating_count": 0,
+            "exam_year": exam_year,
+            "exam_session": exam_session
         }
 
         return jsonify({

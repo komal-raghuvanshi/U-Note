@@ -22,7 +22,9 @@ function ResourceDetailsModal({ resource, onClose, user, onRatingSubmitted }) {
   const [isEditing, setIsEditing] = useState(false)
   const [editTitle, setEditTitle] = useState(resource?.title || '')
   const [editDescription, setEditDescription] = useState(resource?.description || '')
-  const [editResourceType, setEditResourceType] = useState(resource?.resource_type || '')
+  const [editResourceType, setEditResourceType] = useState(resource?.resource_type || resource?.type || '')
+  const [editExamYear, setEditExamYear] = useState(resource?.exam_year || '')
+  const [editExamSession, setEditExamSession] = useState(resource?.exam_session || '')
   const [showReportModal, setShowReportModal] = useState(false)
 
   const isOwner =
@@ -106,14 +108,21 @@ function ResourceDetailsModal({ resource, onClose, user, onRatingSubmitted }) {
     if (!user?.token) return
 
     try {
+      const isPYQ = (editResourceType || '').toLowerCase().includes('previous year') || (editResourceType || '').toLowerCase().includes('pyq')
+      const payload = {
+        title: editTitle.trim(),
+        description: editDescription.trim(),
+        resource_type: editResourceType
+      }
+      if (isPYQ) {
+        payload.exam_year = editExamYear || null
+        payload.exam_session = editExamSession || null
+      }
+
       const response = await apiFetch(`/resources/${resource.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title: editTitle.trim(),
-          description: editDescription.trim(),
-          resource_type: editResourceType
-        })
+        body: JSON.stringify(payload)
       }, user.token)
 
       const data = await response.json()
@@ -228,10 +237,40 @@ function ResourceDetailsModal({ resource, onClose, user, onRatingSubmitted }) {
                 <option value="Handwritten Notes">Handwritten Notes</option>
                 <option value="PDF Notes">PDF Notes</option>
                 <option value="Class Notes">Class Notes</option>
-                <option value="Previous Year Papers">Previous Year Papers</option>
+                <option value="Previous Year Question Papers">Previous Year Question Papers</option>
                 <option value="Important Questions">Important Questions</option>
                 <option value="Teacher Resources">Teacher Resources</option>
               </select>
+
+              {((editResourceType || '').toLowerCase().includes('previous year') || (editResourceType || '').toLowerCase().includes('pyq')) && (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginTop: '0.75rem', marginBottom: '0.75rem' }}>
+                  <div>
+                    <label>Exam Year</label>
+                    <select
+                      className="form-control"
+                      value={editExamYear}
+                      onChange={(e) => setEditExamYear(e.target.value)}
+                    >
+                      <option value="">Select Year</option>
+                      {[2026, 2025, 2024, 2023, 2022, 2021, 2020, 2019, 2018, 2017, 2016, 2015].map((yr) => (
+                        <option key={yr} value={yr}>{yr}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label>Exam Session</label>
+                    <select
+                      className="form-control"
+                      value={editExamSession}
+                      onChange={(e) => setEditExamSession(e.target.value)}
+                    >
+                      <option value="">Select Session</option>
+                      <option value="June">June</option>
+                      <option value="December">December</option>
+                    </select>
+                  </div>
+                </div>
+              )}
 
               <button
                 type="button"
@@ -280,6 +319,15 @@ function ResourceDetailsModal({ resource, onClose, user, onRatingSubmitted }) {
                 {resource.unit_label || (resource.unit ? `Unit ${resource.unit}` : 'All Units')}
               </span>
             </div>
+
+            {(resource.exam_year || resource.exam_session) && (
+              <div className="meta-item">
+                <span className="meta-label">Exam Session & Year</span>
+                <span className="meta-value" style={{ fontWeight: 600, color: 'var(--primary-color)' }}>
+                  {[resource.exam_session, resource.exam_year].filter(Boolean).join(' ')}
+                </span>
+              </div>
+            )}
           </div>
 
           {resource.uploader_name && (

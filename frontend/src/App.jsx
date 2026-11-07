@@ -196,7 +196,7 @@ function App() {
       description: 'Structured digital notes, syllabus summaries, and textbook references in PDF format.',
     },
     {
-      title: 'Previous Year Papers',
+      title: 'Previous Year Question Papers',
       description: 'Past semester examination question papers to practice and understand exam trends.',
     },
     {
@@ -329,7 +329,25 @@ function App() {
                         <p className="resource-description">
                           {resource.subject} · {resource.unit_label || `Unit ${resource.unit}`}
                         </p>
-                        <p className="resource-description">{resource.type}</p>
+                        <p className="resource-description">
+                          {resource.type}
+                          {(resource.exam_year || resource.exam_session) && (
+                            <span
+                              className="pyq-session-badge"
+                              style={{
+                                marginLeft: '0.45rem',
+                                padding: '0.15rem 0.45rem',
+                                fontSize: '0.75rem',
+                                fontWeight: 600,
+                                borderRadius: '4px',
+                                backgroundColor: '#e0e7ff',
+                                color: '#3730a3'
+                              }}
+                            >
+                              {[resource.exam_session, resource.exam_year].filter(Boolean).join(' ')}
+                            </span>
+                          )}
+                        </p>
                         <div style={{ marginTop: '0.75rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                           {resource.filename && (
                             <>
