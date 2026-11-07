@@ -21,6 +21,7 @@ function ProfileModal({ user, initialTab = 'profile', onClose, onLogout, onNavig
   const [sharedResourcesLoading, setSharedResourcesLoading] = useState(false)
   const [sharedResourcesError, setSharedResourcesError] = useState('')
   const [savedResources, setSavedResources] = useState([])
+  const [savedResourcesLoading, setSavedResourcesLoading] = useState(false)
   const [savedResourcesError, setSavedResourcesError] = useState('')
   const [deletingId, setDeletingId] = useState(null)
   const [savingProfile, setSavingProfile] = useState(false)
@@ -83,6 +84,7 @@ function ProfileModal({ user, initialTab = 'profile', onClose, onLogout, onNavig
 
     const controller = new AbortController()
     async function fetchSavedResources() {
+      setSavedResourcesLoading(true)
       setSavedResourcesError('')
       try {
         const response = await apiFetch('/resources/saved', { signal: controller.signal }, user.token)
@@ -94,6 +96,10 @@ function ProfileModal({ user, initialTab = 'profile', onClose, onLogout, onNavig
       } catch (error) {
         if (error.name !== 'AbortError') {
           setSavedResourcesError(error.message || 'Unable to load saved resources.')
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setSavedResourcesLoading(false)
         }
       }
     }
@@ -508,7 +514,9 @@ function ProfileModal({ user, initialTab = 'profile', onClose, onLogout, onNavig
 
               {activeTab === 'saved' && (
                 <div className="profile-tab-content">
-                  {savedResourcesError ? (
+                  {savedResourcesLoading ? (
+                    <p className="empty-tab-text">Loading saved resources...</p>
+                  ) : savedResourcesError ? (
                     <p className="error-message" role="alert">{savedResourcesError}</p>
                   ) : savedResources.length === 0 ? (
                     <>

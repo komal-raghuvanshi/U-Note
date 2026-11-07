@@ -28,8 +28,13 @@ the configured values directly; only the port has a default:
 | `UNOTE_DB_NAME` | Required | Database name (`u_note` locally; Aiven production uses `defaultdb`) |
 | `UNOTE_SECRET_KEY` | Required for authentication | Set a long, random value |
 | `UNOTE_CORS_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | Comma-separated allowed frontend origins |
-| `UNOTE_EMAIL` | Optional | Sender account for the contact form |
-| `UNOTE_EMAIL_APP_PASSWORD` | Optional | App password for the contact email account |
+| `UNOTE_EMAIL` | Optional | Sender email account for OTP verification & contact form (Gmail) |
+| `UNOTE_EMAIL_APP_PASSWORD` | Optional | App password for the sender email account |
+| `RESEND_API_KEY` | Optional | Resend API key for OTP delivery (Priority 1) |
+| `BREVO_API_KEY` | Optional | Brevo API key for OTP delivery (Priority 2) |
+| `EMAIL_SENDER_NAME` | `U-NOTE` | Sender display name for emails |
+| `SMTP_HOST` | `smtp.gmail.com` | Custom SMTP host if not using default Gmail |
+| `SMTP_PORT` | `587` | Custom SMTP port |
 
 Keep credentials in environment variables; do not commit them. Existing sessions are signed, expire after seven days, and are stored by the frontend in browser local storage.
 

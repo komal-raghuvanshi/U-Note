@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { apiFetch, apiUrl } from '../api'
 import { useAcademicOptions } from '../hooks/useAcademicOptions'
 
@@ -18,6 +18,37 @@ function AuthPages({ mode = 'login', onNavigate, onLoginSuccess }) {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [loading, setLoading] = useState(false)
+
+  // OTP verification state
+  const [showOtp, setShowOtp] = useState(false)
+  const [pendingEmail, setPendingEmail] = useState('')
+  const [otp, setOtp] = useState('')
+  const [otpLoading, setOtpLoading] = useState(false)
+  const [otpError, setOtpError] = useState('')
+  const [otpSuccess, setOtpSuccess] = useState('')
+  const [resendCooldown, setResendCooldown] = useState(0)
+  const cooldownRef = useRef(null)
+
+  // Cleanup cooldown timer on unmount
+  useEffect(() => {
+    return () => {
+      if (cooldownRef.current) clearInterval(cooldownRef.current)
+    }
+  }, [])
+
+  const startResendCooldown = () => {
+    setResendCooldown(60)
+    if (cooldownRef.current) clearInterval(cooldownRef.current)
+    cooldownRef.current = setInterval(() => {
+      setResendCooldown((prev) => {
+        if (prev <= 1) {
+          clearInterval(cooldownRef.current)
+          return 0
+        }
+        return prev - 1
+      })
+    }, 1000)
+  }
 
   const handleChange = (e) => {
     const { name, value } = e.target
@@ -63,12 +94,37 @@ function AuthPages({ mode = 'login', onNavigate, onLoginSuccess }) {
 
       const data = await response.json()
 
+      // Unverified login → redirect to OTP screen
+      if (response.status === 403 && data.requires_verification) {
+        setPendingEmail(data.email || formData.email)
+        setOtp('')
+        setOtpError('')
+        setOtpSuccess('')
+        setShowOtp(true)
+        startResendCooldown()
+        setLoading(false)
+        return
+      }
+
       if (!response.ok) {
         setError(data.error || data.message || 'Authentication failed. Please verify your details.')
         setLoading(false)
         return
       }
 
+      // Signup → show OTP verification screen
+      if (!isLogin && data.requires_verification) {
+        setPendingEmail(data.email || formData.email)
+        setOtp('')
+        setOtpError('')
+        setOtpSuccess('Account created! Check your email for a 6-digit verification code.')
+        setShowOtp(true)
+        startResendCooldown()
+        setLoading(false)
+        return
+      }
+
+      // Normal successful login
       onLoginSuccess({
         ...data.user,
         token: data.token,
@@ -87,6 +143,154 @@ function AuthPages({ mode = 'login', onNavigate, onLoginSuccess }) {
     }
   }
 
+  const handleOtpSubmit = async (e) => {
+    e.preventDefault()
+    setOtpError('')
+    setOtpSuccess('')
+    if (!otp || otp.length !== 6 || !/^\d{6}$/.test(otp)) {
+      setOtpError('Please enter the 6-digit code sent to your email.')
+      return
+    }
+    setOtpLoading(true)
+    try {
+      const response = await apiFetch('/verify-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: pendingEmail, otp })
+      })
+      const data = await response.json()
+      if (!response.ok) {
+        setOtpError(data.error || 'Verification failed. Please try again.')
+        return
+      }
+      setOtpSuccess('Email verified! Signing you in…')
+      onLoginSuccess({
+        ...data.user,
+        token: data.token,
+        branch: data.user.branch || '',
+        semester: data.user.semester || '',
+        avatar: data.user.profile_photo_url ? apiUrl(data.user.profile_photo_url) : ''
+      })
+      window.setTimeout(() => onNavigate('/'), 600)
+    } catch {
+      setOtpError('Unable to reach the server. Please try again.')
+    } finally {
+      setOtpLoading(false)
+    }
+  }
+
+  const handleResendOtp = async () => {
+    if (resendCooldown > 0) return
+    setOtpError('')
+    setOtpSuccess('')
+    try {
+      const response = await apiFetch('/resend-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: pendingEmail })
+      })
+      const data = await response.json()
+      if (!response.ok) {
+        setOtpError(data.error || 'Failed to resend code. Please try again.')
+        return
+      }
+      setOtpSuccess('A new code has been sent to your email.')
+      startResendCooldown()
+    } catch {
+      setOtpError('Unable to resend code. Check your connection.')
+    }
+  }
+
+  // ── OTP verification screen ──
+  if (showOtp) {
+    return (
+      <div className="auth-page-container">
+        <div className="section-container">
+          <div className="auth-form-wrapper otp-screen-wrapper">
+            <div className="auth-header">
+              <div className="auth-brand">
+                <img src="/logo.png" alt="U-NOTE Logo" className="auth-brand-logo" />
+              </div>
+              <h1 className="auth-title">Verify your email</h1>
+              <p className="auth-subtitle otp-hint-text">
+                We sent a 6-digit code to <strong>{pendingEmail}</strong>.
+                Enter it below to activate your account.
+              </p>
+            </div>
+
+            <form className="auth-form" onSubmit={handleOtpSubmit}>
+              <div className="form-group">
+                <label htmlFor="otp">Verification Code</label>
+                <input
+                  id="otp"
+                  type="text"
+                  inputMode="numeric"
+                  pattern="\d{6}"
+                  maxLength={6}
+                  className="form-control otp-input"
+                  placeholder="000000"
+                  value={otp}
+                  onChange={(e) => {
+                    setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))
+                    setOtpError('')
+                  }}
+                  autoComplete="one-time-code"
+                  autoFocus
+                  required
+                />
+              </div>
+
+              {otpError && (
+                <p className="error-message auth-feedback auth-feedback-error" role="alert">
+                  {otpError}
+                </p>
+              )}
+              {otpSuccess && (
+                <p className="auth-feedback auth-feedback-success" role="status">
+                  {otpSuccess}
+                </p>
+              )}
+
+              <div className="auth-actions">
+                <button
+                  type="submit"
+                  className="btn btn-primary auth-submit-btn"
+                  disabled={otpLoading || Boolean(otpSuccess && otpSuccess.includes('Signing'))}
+                >
+                  {otpLoading ? 'Verifying…' : 'Verify Email'}
+                </button>
+              </div>
+            </form>
+
+            <div className="auth-switch-footer">
+              <p>
+                Didn&apos;t receive the code?{' '}
+                <button
+                  type="button"
+                  className={`text-link-btn otp-resend-btn${resendCooldown > 0 ? ' otp-resend-disabled' : ''}`}
+                  onClick={handleResendOtp}
+                  disabled={resendCooldown > 0}
+                >
+                  {resendCooldown > 0 ? `Resend in ${resendCooldown}s` : 'Resend code'}
+                </button>
+              </p>
+              <p>
+                <button
+                  type="button"
+                  className="text-link-btn"
+                  onClick={() => { setShowOtp(false); setOtpError(''); setOtpSuccess('') }}
+                >
+                  ← Back to {isLogin ? 'login' : 'sign up'}
+                </button>
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // ── Normal login / signup form ──
   return (
     <div className="auth-page-container">
       <div className="section-container">
@@ -267,7 +471,7 @@ function AuthPages({ mode = 'login', onNavigate, onLoginSuccess }) {
           <div className="auth-switch-footer">
             {isLogin ? (
               <p>
-                Don't have an account yet?{' '}
+                Don&apos;t have an account yet?{' '}
                 <button
                   type="button"
                   className="text-link-btn"

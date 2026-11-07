@@ -2812,3 +2812,70 @@
     flex: 0 0 auto;
   }
 }
+
+/* ══════════════════════════════════════════
+   OTP Verification Screen
+   ══════════════════════════════════════════ */
+
+.otp-screen-wrapper {
+  max-width: 420px;
+}
+
+.otp-input {
+  text-align: center;
+  letter-spacing: 0.5em;
+  font-size: 1.75rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  padding: 0.65rem 1rem;
+  color: var(--color-primary, #4f46e5);
+  border: 2px solid var(--color-primary, #4f46e5);
+  border-radius: 10px;
+  width: 100%;
+  background: #f8f7ff;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.otp-input:focus {
+  outline: none;
+  border-color: var(--color-primary-dark, #3730a3);
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.18);
+  background: #ffffff;
+}
+
+.otp-hint-text {
+  font-size: 0.95rem;
+  color: #64748b;
+  line-height: 1.6;
+}
+
+.otp-resend-btn {
+  font-weight: 600;
+  color: var(--color-primary, #4f46e5);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  font-size: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  transition: color 0.15s;
+}
+
+.otp-resend-btn:hover:not(.otp-resend-disabled) {
+  color: var(--color-primary-dark, #3730a3);
+}
+
+.otp-resend-disabled {
+  color: #94a3b8;
+  cursor: default;
+  text-decoration: none;
+  pointer-events: none;
+}
+
+@media (max-width: 480px) {
+  .otp-input {
+    font-size: 1.4rem;
+    letter-spacing: 0.35em;
+  }
+}

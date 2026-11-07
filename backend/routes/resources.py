@@ -317,17 +317,19 @@ def get_shared_resources():
 def get_saved_resources():
     connection = None
     cursor = None
+    saved_ids = []
     try:
         connection = get_db_connection()
         cursor = connection.cursor(dictionary=True)
+        if not table_exists(cursor, "saved_resources"):
+            return jsonify({"success": True, "count": 0, "resources": []}), 200
+
         cursor.execute(
-            "SELECT resource_id FROM saved_resources WHERE user_id = %s",
+            "SELECT resource_id FROM saved_resources WHERE user_id = %s ORDER BY created_at DESC",
             (g.user_id,)
         )
-        saved_ids = {row["resource_id"] for row in cursor.fetchall()}
-        all_resources = _fetch_all_resources()
-        saved = [resource for resource in all_resources if resource["id"] in saved_ids]
-        return jsonify({"success": True, "count": len(saved), "resources": saved}), 200
+        saved_rows = cursor.fetchall()
+        saved_ids = [row["resource_id"] for row in saved_rows]
     except Exception:
         current_app.logger.exception("Failed to fetch saved resources")
         return jsonify({
@@ -340,6 +342,19 @@ def get_saved_resources():
             cursor.close()
         if connection:
             connection.close()
+
+    try:
+        all_resources = _fetch_all_resources()
+        resource_map = {resource["id"]: resource for resource in all_resources}
+        saved = [resource_map[rid] for rid in saved_ids if rid in resource_map]
+        return jsonify({"success": True, "count": len(saved), "resources": saved}), 200
+    except Exception:
+        current_app.logger.exception("Failed to load saved resource details")
+        return jsonify({
+            "success": False,
+            "message": "Unable to fetch saved resources.",
+            "resources": []
+        }), 500
 
 
 @resources_bp.route("/resources/<int:resource_id>/saved", methods=["GET", "POST", "DELETE"])

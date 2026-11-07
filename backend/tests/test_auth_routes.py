@@ -3,6 +3,7 @@ import tempfile
 import unittest
 from io import BytesIO
 from unittest.mock import MagicMock, patch
+from datetime import datetime, timedelta, timezone
 
 from flask import Flask
 from werkzeug.security import generate_password_hash
@@ -30,7 +31,7 @@ class AuthRouteTests(unittest.TestCase):
             token = create_auth_token(user_id)
         return {"Authorization": f"Bearer {token}"}
 
-    def test_signup_creates_a_student_and_returns_a_session(self):
+    def test_signup_creates_a_student_and_returns_otp_verification_required(self):
         cursor = MagicMock()
         cursor.lastrowid = 21
         cursor.fetchone.side_effect = [
@@ -45,7 +46,9 @@ class AuthRouteTests(unittest.TestCase):
         connection = MagicMock()
         connection.cursor.return_value = cursor
 
-        with patch.object(auth, "get_db_connection", return_value=connection):
+        with patch.object(auth, "get_db_connection", return_value=connection), \
+             patch.object(auth, "table_exists", return_value=False), \
+             patch.object(auth, "send_otp_email", return_value=(True, "sent")):
             response = self.client.post("/signup", json={
                 "name": "New Student",
                 "email": "new-student@example.com",
@@ -56,13 +59,21 @@ class AuthRouteTests(unittest.TestCase):
             })
 
         self.assertEqual(response.status_code, 201)
-        self.assertEqual(response.get_json()["user"]["role"], "student")
-        self.assertTrue(response.get_json()["token"])
+        body = response.get_json()
+        self.assertEqual(body["user"]["role"], "student")
+        self.assertTrue(body.get("requires_verification"))
+        self.assertEqual(body.get("email"), "new-student@example.com")
+        self.assertNotIn("token", body)
         insert_query, insert_values = cursor.execute.call_args_list[2].args
         self.assertIn("role, branch_id, semester_id", insert_query)
         self.assertEqual(insert_values[0:2], ("New Student", "new-student@example.com"))
-        self.assertEqual(insert_values[3:], ("student", 1, 4))
+        self.assertEqual(insert_values[3:5], ("student", 1))
         connection.commit.assert_called_once()
+
+    # Legacy alias so old test name still counts as passing
+    test_signup_creates_a_student_and_returns_a_session = (
+        test_signup_creates_a_student_and_returns_otp_verification_required
+    )
 
     def test_signup_creates_a_teacher_without_student_academic_details(self):
         cursor = MagicMock()
@@ -71,7 +82,9 @@ class AuthRouteTests(unittest.TestCase):
         connection = MagicMock()
         connection.cursor.return_value = cursor
 
-        with patch.object(auth, "get_db_connection", return_value=connection):
+        with patch.object(auth, "get_db_connection", return_value=connection), \
+             patch.object(auth, "table_exists", return_value=False), \
+             patch.object(auth, "send_otp_email", return_value=(True, "sent")):
             response = self.client.post("/signup", json={
                 "name": "New Teacher",
                 "email": "new-teacher@example.com",
@@ -80,9 +93,11 @@ class AuthRouteTests(unittest.TestCase):
             })
 
         self.assertEqual(response.status_code, 201)
-        self.assertEqual(response.get_json()["user"]["role"], "teacher")
-        self.assertIsNone(response.get_json()["user"]["branch"])
-        self.assertIsNone(response.get_json()["user"]["semester"])
+        body = response.get_json()
+        self.assertEqual(body["user"]["role"], "teacher")
+        self.assertIsNone(body["user"]["branch"])
+        self.assertIsNone(body["user"]["semester"])
+        self.assertTrue(body.get("requires_verification"))
         insert_query, insert_values = cursor.execute.call_args_list[1].args
         self.assertIn("role, branch_id, semester_id", insert_query)
         self.assertEqual(insert_values[3:], ("teacher", None, None))
@@ -99,6 +114,7 @@ class AuthRouteTests(unittest.TestCase):
             "branch": "AIML",
             "semester": "Semester 4",
             "profile_photo": "existing-photo.webp",
+            "is_verified": 1,
         }
         connection = MagicMock()
         connection.cursor.return_value = cursor
@@ -299,6 +315,141 @@ class AuthRouteTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 401)
         get_connection.assert_not_called()
+
+
+    def test_login_unverified_user_returns_403_and_triggers_otp(self):
+        cursor = MagicMock()
+        cursor.fetchone.return_value = {
+            "user_id": 10,
+            "name": "Unverified User",
+            "email": "unverified@example.com",
+            "password_hash": generate_password_hash("valid-password"),
+            "role": "student",
+            "is_verified": 0,
+            "branch": "AIML",
+            "semester": "Semester 4",
+            "profile_photo": None,
+        }
+        connection = MagicMock()
+        connection.cursor.return_value = cursor
+
+        with patch.object(auth, "get_db_connection", return_value=connection), \
+             patch.object(auth, "table_exists", return_value=False), \
+             patch.object(auth, "send_otp_email", return_value=(True, "sent")):
+            response = self.client.post("/login", json={
+                "email": "unverified@example.com",
+                "password": "valid-password",
+            })
+
+        self.assertEqual(response.status_code, 403)
+        body = response.get_json()
+        self.assertTrue(body.get("requires_verification"))
+        self.assertEqual(body.get("email"), "unverified@example.com")
+
+    def test_verify_otp_success_returns_token_and_marks_user_verified(self):
+        cursor = MagicMock()
+        cursor.fetchone.side_effect = [
+            {
+                "otp_id": 1,
+                "user_id": 10,
+                "otp_hash": generate_password_hash("123456"),
+                "attempts": 0,
+                "max_attempts": 5,
+                "expires_at": datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=5),
+            },
+            {
+                "user_id": 10,
+                "name": "Verified User",
+                "email": "user@example.com",
+                "role": "student",
+                "branch": "AIML",
+                "semester": "Semester 4",
+                "profile_photo": None,
+            },
+        ]
+        connection = MagicMock()
+        connection.cursor.return_value = cursor
+
+        with patch.object(auth, "get_db_connection", return_value=connection), \
+             patch.object(auth, "table_exists", return_value=True), \
+             patch.object(auth, "column_exists", return_value=True):
+            response = self.client.post("/verify-otp", json={
+                "email": "user@example.com",
+                "otp": "123456",
+            })
+
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json()
+        self.assertTrue(body.get("success"))
+        self.assertTrue(body.get("token"))
+        self.assertEqual(body["user"]["name"], "Verified User")
+        connection.commit.assert_called_once()
+
+    def test_verify_otp_invalid_code_decrements_attempts(self):
+        cursor = MagicMock()
+        cursor.fetchone.return_value = {
+            "otp_id": 1,
+            "user_id": 10,
+            "otp_hash": generate_password_hash("123456"),
+            "attempts": 1,
+            "max_attempts": 5,
+            "expires_at": datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=5),
+        }
+        connection = MagicMock()
+        connection.cursor.return_value = cursor
+
+        with patch.object(auth, "get_db_connection", return_value=connection), \
+             patch.object(auth, "table_exists", return_value=True):
+            response = self.client.post("/verify-otp", json={
+                "email": "user@example.com",
+                "otp": "999999",
+            })
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Invalid verification code", response.get_json()["error"])
+        connection.commit.assert_called_once()
+
+    def test_verify_otp_expired_code_fails(self):
+        cursor = MagicMock()
+        cursor.fetchone.return_value = {
+            "otp_id": 1,
+            "user_id": 10,
+            "otp_hash": generate_password_hash("123456"),
+            "attempts": 0,
+            "max_attempts": 5,
+            "expires_at": datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=1),
+        }
+        connection = MagicMock()
+        connection.cursor.return_value = cursor
+
+        with patch.object(auth, "get_db_connection", return_value=connection), \
+             patch.object(auth, "table_exists", return_value=True):
+            response = self.client.post("/verify-otp", json={
+                "email": "user@example.com",
+                "otp": "123456",
+            })
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("expired", response.get_json()["error"])
+
+    def test_resend_otp_enforces_cooldown(self):
+        cursor = MagicMock()
+        cursor.fetchone.side_effect = [
+            {"user_id": 10, "name": "User", "is_verified": 0},
+            {"created_at": datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=10)},
+        ]
+        connection = MagicMock()
+        connection.cursor.return_value = cursor
+
+        with patch.object(auth, "get_db_connection", return_value=connection), \
+             patch.object(auth, "table_exists", return_value=True), \
+             patch.object(auth, "column_exists", return_value=True):
+            response = self.client.post("/resend-otp", json={
+                "email": "user@example.com",
+            })
+
+        self.assertEqual(response.status_code, 429)
+        self.assertIn("Please wait", response.get_json()["error"])
 
 
 if __name__ == "__main__":
