@@ -2879,3 +2879,128 @@
     letter-spacing: 0.35em;
   }
 }
+
+
+/* ══════════════════════════════════════════
+   Notification Bell & Badge
+   ══════════════════════════════════════════ */
+.nav-notif-btn {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid rgba(226, 232, 240, 0.8);
+  background: #ffffff;
+  color: #475569;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.nav-notif-btn:hover {
+  background: #f1f5f9;
+  color: #6366f1;
+  border-color: #cbd5e1;
+}
+
+.notif-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  background: #ef4444;
+  color: #ffffff;
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: 10px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+/* ══════════════════════════════════════════
+   Resource Quality Badges
+   ══════════════════════════════════════════ */
+.resource-quality-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-bottom: 0.45rem;
+}
+
+.quality-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.2rem 0.55rem;
+  border-radius: 6px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.badge-verified {
+  background: #e0e7ff;
+  color: #4338ca;
+  border: 1px solid #c7d2fe;
+}
+
+.badge-highly-rated {
+  background: #fef3c7;
+  color: #b45309;
+  border: 1px solid #fde68a;
+}
+
+.badge-popular {
+  background: #ffedd5;
+  color: #c2410c;
+  border: 1px solid #fed7aa;
+}
+
+.badge-needs-review {
+  background: #fee2e2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+}
+
+.resource-card-rating {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.82rem;
+  color: #64748b;
+  margin-bottom: 0.4rem;
+}
+
+.resource-card-rating .stars-icon {
+  color: #f59e0b;
+  font-size: 0.95rem;
+}
+
+.resource-card-rating .rating-value {
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.resource-card-rating .rating-count {
+  color: #64748b;
+}
+
+.resource-card-rating .downloads-count {
+  color: #94a3b8;
+}
+
+/* ══════════════════════════════════════════
+   Admin Panel Styles
+   ══════════════════════════════════════════ */
+.admin-tab-btn:hover:not(.active) {
+  background: #e2e8f0 !important;
+  color: #1e293b !important;
+}
+
+.dropdown-admin-item {
+  color: #6366f1 !important;
+  font-weight: 600 !important;
+}

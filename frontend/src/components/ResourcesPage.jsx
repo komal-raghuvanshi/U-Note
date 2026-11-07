@@ -455,7 +455,26 @@ function ResourcesPage({ onSelectResource, onShareClick, initialType = '', user 
                   style={{ cursor: 'pointer' }}
                 >
                   <div className="card-top-bar"></div>
+                  {resource.quality_labels && resource.quality_labels.length > 0 && (
+                    <div className="resource-quality-badges">
+                      {resource.quality_labels.map((lbl) => (
+                        <span key={lbl} className={`quality-badge badge-${lbl.toLowerCase().replace(/\s+/g, '-')}`}>
+                          {lbl === 'Verified' ? '🛡️ Verified' : lbl === 'Highly Rated' ? '★ Highly Rated' : lbl === 'Popular' ? '🔥 Popular' : '⚠️ Needs Review'}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                   <h3 className="resource-title">{resource.title}</h3>
+                  <div className="resource-card-rating">
+                    <span className="stars-icon">★</span>
+                    <span className="rating-value">{resource.avg_rating ? Number(resource.avg_rating).toFixed(1) : 'No ratings'}</span>
+                    {resource.rating_count > 0 && (
+                      <span className="rating-count">({resource.rating_count})</span>
+                    )}
+                    {resource.download_count > 0 && (
+                      <span className="downloads-count">· {resource.download_count} {resource.download_count === 1 ? 'download' : 'downloads'}</span>
+                    )}
+                  </div>
                   <p className="resource-description">
                     {resource.branch} · Semester {resource.semester}
                   </p>

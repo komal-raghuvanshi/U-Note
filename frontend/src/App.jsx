@@ -10,6 +10,8 @@ import AuthPages from './components/AuthPages'
 import ProfileModal from './components/ProfileModal'
 import AboutPage from './components/AboutPage'
 import RequestsPage from './components/RequestsPage'
+import AdminPanel from './components/AdminPanel'
+import NotificationsModal from './components/NotificationsModal'
 import { apiFetch, apiUrl } from './api'
 import './App.css'
 
@@ -32,6 +34,8 @@ function App() {
   const [previewError, setPreviewError] = useState('')
   const [selectedResource, setSelectedResource] = useState(null)
   const [showProfileModal, setShowProfileModal] = useState(false)
+  const [showNotificationsModal, setShowNotificationsModal] = useState(false)
+  const [unreadCount, setUnreadCount] = useState(0)
   const [profileInitialTab, setProfileInitialTab] = useState('profile')
   const [user, setUser] = useState(() => {
     try {
@@ -43,6 +47,33 @@ function App() {
     }
   })
   const savedAvatar = user?.avatar
+
+  // Fetch unread notifications count
+  useEffect(() => {
+    if (!user?.token) {
+      setUnreadCount(0)
+      return undefined
+    }
+
+    let isMounted = true
+    const fetchUnread = () => {
+      apiFetch('/notifications/unread-count', {}, user.token)
+        .then(async (res) => {
+          const data = await res.json()
+          if (res.ok && isMounted && data.success) {
+            setUnreadCount(data.unread_count || 0)
+          }
+        })
+        .catch(() => {})
+    }
+
+    fetchUnread()
+    const interval = setInterval(fetchUnread, 45000)
+    return () => {
+      isMounted = false
+      clearInterval(interval)
+    }
+  }, [user?.token])
 
   // Sync route with browser history (Back / Forward)
   useEffect(() => {
@@ -196,6 +227,9 @@ function App() {
           />
         )
 
+      case '/admin':
+        return <AdminPanel user={user} onNavigate={navigate} />
+
       case '/requests':
         return <RequestsPage user={user} onNavigate={navigate} />
 
@@ -237,6 +271,7 @@ function App() {
         )
 
       case '/':
+        /* falls through */
       default:
         return (
           <>
@@ -410,6 +445,8 @@ function App() {
           setShowProfileModal(true)
         }}
         onLogout={handleLogout}
+        onOpenNotifications={() => setShowNotificationsModal(true)}
+        unreadCount={unreadCount}
       />
 
       <main className="main-content">{renderView()}</main>
@@ -430,6 +467,15 @@ function App() {
           onLogout={handleLogout}
           onNavigate={navigate}
           onUpdateUser={handleLoginSuccess}
+        />
+      )}
+
+      {showNotificationsModal && user && (
+        <NotificationsModal
+          user={user}
+          onClose={() => setShowNotificationsModal(false)}
+          onNavigate={navigate}
+          onUnreadCountChange={setUnreadCount}
         />
       )}
 

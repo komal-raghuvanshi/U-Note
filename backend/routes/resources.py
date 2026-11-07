@@ -10,9 +10,11 @@ from werkzeug.utils import secure_filename
 try:
     from auth_utils import authenticated_user_id, require_auth
     from db import get_db_connection, table_exists, column_exists
+    from notifications_service import create_notification, notify_admins
 except ImportError:
     from backend.auth_utils import authenticated_user_id, require_auth
     from backend.db import get_db_connection, table_exists, column_exists
+    from backend.notifications_service import create_notification, notify_admins
 
 resources_bp = Blueprint("resources", __name__)
 ALLOWED_EXTENSIONS = {"pdf", "png", "jpg", "jpeg"}
@@ -74,10 +76,27 @@ def _fetch_all_resources(owner_id=None):
         cursor = connection.cursor(dictionary=True)
         has_meta = table_exists(cursor, "subject_catalogue_metadata")
         has_scope = column_exists(cursor, "resources", "unit_scope")
+        has_approval = column_exists(cursor, "resources", "approval_status")
+        has_verified = column_exists(cursor, "resources", "is_verified")
+        has_downloads = column_exists(cursor, "resources", "download_count")
+        has_reports = table_exists(cursor, "resource_reports")
 
         meta_join = "LEFT JOIN subject_catalogue_metadata meta ON meta.subject_id = s.subject_id" if has_meta else ""
         meta_code = "COALESCE(meta.catalogue_code, s.subject_code) AS subject_code," if has_meta else "s.subject_code AS subject_code,"
         scope_col = "r.unit_scope AS unit_scope," if has_scope else "'unit' AS unit_scope,"
+        approval_col = "r.approval_status AS approval_status," if has_approval else "'approved' AS approval_status,"
+        verified_col = "r.is_verified AS is_verified," if has_verified else "0 AS is_verified,"
+        downloads_col = "r.download_count AS download_count," if has_downloads else "0 AS download_count,"
+
+        reports_join = """
+            LEFT JOIN (
+                SELECT resource_id, COUNT(*) AS pending_reports
+                FROM resource_reports
+                WHERE status = 'pending'
+                GROUP BY resource_id
+            ) report_stats ON r.resource_id = report_stats.resource_id
+        """ if has_reports else ""
+        reports_col = "COALESCE(report_stats.pending_reports, 0) AS pending_reports," if has_reports else "0 AS pending_reports,"
 
         query = f"""
             SELECT
@@ -93,12 +112,17 @@ def _fetch_all_resources(owner_id=None):
                 u.unit_number AS unit,
                 u.unit_name AS unit_name,
                 {scope_col}
+                {approval_col}
+                {verified_col}
+                {downloads_col}
+                {reports_col}
                 r.created_at AS uploaded_at,
                 r.uploaded_by,
                 uploader.name AS uploader_name,
                 uploader.role AS uploader_role,
                 rating_stats.avg_rating,
-                COALESCE(rating_stats.rating_count, 0) AS rating_count
+                COALESCE(rating_stats.rating_count, 0) AS rating_count,
+                COALESCE(save_stats.save_count, 0) AS save_count
             FROM resources r
             LEFT JOIN subjects s ON r.subject_id = s.subject_id
             {meta_join}
@@ -114,11 +138,23 @@ def _fetch_all_resources(owner_id=None):
                 FROM ratings
                 GROUP BY resource_id
             ) rating_stats ON r.resource_id = rating_stats.resource_id
+            LEFT JOIN (
+                SELECT resource_id, COUNT(*) AS save_count
+                FROM saved_resources
+                GROUP BY resource_id
+            ) save_stats ON r.resource_id = save_stats.resource_id
+            {reports_join}
         """
         values = ()
+        conditions = []
         if owner_id is not None:
-            query = query.rstrip() + "\n WHERE r.uploaded_by = %s"
+            conditions.append("r.uploaded_by = %s")
             values = (owner_id,)
+        elif has_approval:
+            conditions.append("(r.approval_status = 'approved' OR r.approval_status IS NULL)")
+
+        if conditions:
+            query += "\n WHERE " + " AND ".join(conditions)
         query += "\n ORDER BY r.resource_id DESC"
         cursor.execute(query, values)
         rows = cursor.fetchall()
@@ -161,6 +197,24 @@ def _fetch_all_resources(owner_id=None):
             if hasattr(uploaded_at, "isoformat"):
                 uploaded_at = uploaded_at.isoformat()
 
+            # Compute Resource Quality System labels
+            quality_labels = []
+            is_verified = bool(row.get("is_verified", 0))
+            avg_rating = float(row["avg_rating"]) if row.get("avg_rating") is not None else None
+            rating_count = int(row.get("rating_count") or 0)
+            save_count = int(row.get("save_count") or 0)
+            download_count = int(row.get("download_count") or 0)
+            pending_reports = int(row.get("pending_reports") or 0)
+
+            if is_verified:
+                quality_labels.append("Verified")
+            if rating_count >= 2 and avg_rating is not None and avg_rating >= 4.0:
+                quality_labels.append("Highly Rated")
+            if (save_count + download_count) >= 3:
+                quality_labels.append("Popular")
+            if pending_reports > 0:
+                quality_labels.append("Needs Review")
+
             db_resources.append({
                 "id": row["id"],
                 "title": row["title"],
@@ -181,8 +235,13 @@ def _fetch_all_resources(owner_id=None):
                 "uploaded_by": row.get("uploaded_by"),
                 "uploader_name": row.get("uploader_name") or "Community Contributor",
                 "uploader_role": row.get("uploader_role") or "student",
-                "avg_rating": float(row["avg_rating"]) if row.get("avg_rating") is not None else None,
-                "rating_count": int(row.get("rating_count") or 0)
+                "avg_rating": avg_rating,
+                "rating_count": rating_count,
+                "is_verified": is_verified,
+                "quality_labels": quality_labels,
+                "download_count": download_count,
+                "save_count": save_count,
+                "approval_status": row.get("approval_status") or "approved"
             })
 
         return db_resources
@@ -975,6 +1034,18 @@ def upload_resource():
 
         connection.commit()
 
+        # Notify admins about new resource upload
+        try:
+            notify_admins(
+                connection,
+                "New Resource Uploaded",
+                f"A new resource '{title}' was uploaded for {branch_name} Semester {sem_num}.",
+                notification_type="admin_alert",
+                related_resource_id=new_resource_id
+            )
+        except Exception:
+            pass
+
         created_resource = {
             "id": new_resource_id,
             "title": title,
@@ -1184,6 +1255,23 @@ def submit_resource_rating(resource_id):
         """, (resource_id,))
         stats = cursor.fetchone() or {"avg_rating": rating, "rating_count": 1}
 
+        # Notify resource uploader if different user
+        try:
+            cursor.execute("SELECT uploaded_by, title FROM resources WHERE resource_id = %s", (resource_id,))
+            res_meta = cursor.fetchone()
+            if res_meta and res_meta.get("uploaded_by") and res_meta["uploaded_by"] != g.user_id:
+                create_notification(
+                    cursor,
+                    res_meta["uploaded_by"],
+                    "New Rating Received",
+                    f"A student rated your study resource '{res_meta['title']}' with {rating} stars.",
+                    "resource_rated",
+                    resource_id
+                )
+                connection.commit()
+        except Exception:
+            pass
+
         return jsonify({
             "success": True,
             "message": "Rating submitted successfully.",
@@ -1227,6 +1315,14 @@ def open_uploaded_file(filename):
             )
             row = cursor.fetchone()
             if row and row.get("file_data"):
+                try:
+                    cursor.execute(
+                        "UPDATE resources SET download_count = download_count + 1 WHERE resource_url LIKE %s OR resource_url = %s",
+                        (f"%{filename}", filename)
+                    )
+                    connection.commit()
+                except Exception:
+                    pass
                 data = row["file_data"]
                 if isinstance(data, (bytes, bytearray)) and len(data) > 0:
                     mime_type = row.get("mime_type") or "application/octet-stream"

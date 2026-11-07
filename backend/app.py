@@ -11,6 +11,9 @@ from routes.requests import requests_bp
 from flask_cors import CORS
 from routes.auth import auth_bp
 from routes.contact import contact_bp
+from routes.notifications import notifications_bp
+from routes.admin import admin_bp
+from routes.reports import reports_bp
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.getenv("UNOTE_SECRET_KEY")
@@ -30,6 +33,9 @@ app.register_blueprint(resources_bp)
 app.register_blueprint(requests_bp)
 app.register_blueprint(auth_bp)
 app.register_blueprint(contact_bp)
+app.register_blueprint(notifications_bp)
+app.register_blueprint(admin_bp)
+app.register_blueprint(reports_bp)
 
 
 if __name__ == "__main__":

@@ -55,14 +55,16 @@ function NavigationIcon({ name }) {
   )
 }
 
-function Navbar({ onNavigate, currentPath = '/', user, onOpenProfile, onLogout }) {
+function Navbar({ onNavigate, currentPath = '/', user, onOpenProfile, onLogout, onOpenNotifications, unreadCount = 0 }) {
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [avatarFailed, setAvatarFailed] = useState(false)
   const dropdownRef = useRef(null)
-  const roleLabel = user?.role === 'teacher'
-    ? 'Teacher'
-    : user?.role === 'student' ? 'Student' : 'Member'
+  const roleLabel = user?.role === 'admin'
+    ? 'Admin'
+    : user?.role === 'teacher'
+      ? 'Teacher'
+      : user?.role === 'student' ? 'Student' : 'Member'
 
   useEffect(() => {
     setAvatarFailed(false)
@@ -163,7 +165,33 @@ function Navbar({ onNavigate, currentPath = '/', user, onOpenProfile, onLogout }
 
         <div className="nav-actions">
           {user ? (
-            <div className="user-menu-wrapper" ref={dropdownRef}>
+            <>
+              <button
+                type="button"
+                className="nav-notif-btn"
+                onClick={onOpenNotifications}
+                aria-label="View notifications"
+                title="Notifications"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  width="20"
+                  height="20"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+                  <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+                </svg>
+                {unreadCount > 0 && (
+                  <span className="notif-badge">{unreadCount > 99 ? '99+' : unreadCount}</span>
+                )}
+              </button>
+
+              <div className="user-menu-wrapper" ref={dropdownRef}>
               <button
                 type="button"
                 className="nav-avatar-btn"
@@ -196,6 +224,21 @@ function Navbar({ onNavigate, currentPath = '/', user, onOpenProfile, onLogout }
                     </span>
                   </div>
                   <div className="dropdown-divider"></div>
+                  {user.role === 'admin' && (
+                    <>
+                      <button
+                        type="button"
+                        className="dropdown-item dropdown-admin-item"
+                        onClick={() => {
+                          setDropdownOpen(false)
+                          onNavigate('/admin')
+                        }}
+                      >
+                        ⚙️ Admin Panel
+                      </button>
+                      <div className="dropdown-divider"></div>
+                    </>
+                  )}
                   <button
                     type="button"
                     className="dropdown-item"
@@ -240,6 +283,7 @@ function Navbar({ onNavigate, currentPath = '/', user, onOpenProfile, onLogout }
                 </div>
               )}
             </div>
+            </>
           ) : (
             <div className="auth-nav-buttons">
               <button

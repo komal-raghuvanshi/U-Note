@@ -63,14 +63,21 @@ def _user_payload(row):
         profile_photo_url = f"/profile-photos/{profile_photo}"
     else:
         profile_photo_url = None
+    role = row.get("role") or "student"
+    raw_admin_emails = os.getenv("UNOTE_ADMIN_EMAILS", "")
+    admin_emails = {em.strip().lower() for em in raw_admin_emails.split(",") if em.strip()}
+    if (row.get("email") or "").strip().lower() in admin_emails:
+        role = "admin"
+
     return {
         "id": row["user_id"],
         "name": row["name"],
         "email": row["email"],
-        "role": row.get("role") or "student",
+        "role": role,
         "branch": row.get("branch"),
         "semester": semester,
         "profile_photo_url": profile_photo_url,
+        "is_blocked": bool(row.get("is_blocked", 0)),
     }
 
 
@@ -535,6 +542,8 @@ def login():
         photo_select = "u.profile_photo," if has_photo else "NULL AS profile_photo,"
         has_is_verified = column_exists(cursor, "users", "is_verified")
         verified_select = "u.is_verified," if has_is_verified else "1 AS is_verified,"
+        has_blocked = column_exists(cursor, "users", "is_blocked")
+        blocked_select = "u.is_blocked," if has_blocked else "0 AS is_blocked,"
 
         cursor.execute(
             f"""
@@ -545,6 +554,7 @@ def login():
                 u.password_hash,
                 u.role,
                 {verified_select}
+                {blocked_select}
                 {photo_select}
                 b.branch_name AS branch,
                 s.semester_name AS semester
@@ -558,6 +568,11 @@ def login():
         row = cursor.fetchone()
         if not row or not check_password_hash(row["password_hash"], password):
             return jsonify({"error": "Invalid email or password"}), 401
+
+        if row.get("is_blocked"):
+            return jsonify({
+                "error": "Your account has been restricted by an administrator. Please contact support."
+            }), 403
 
         if row.get("is_verified") == 0:
             _save_and_send_otp(cursor, row["user_id"], email, row["name"])

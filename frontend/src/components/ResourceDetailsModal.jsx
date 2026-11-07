@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { apiFetch, apiUrl } from '../api'
+import ReportResourceModal from './ReportResourceModal'
 
 function ResourceDetailsModal({ resource, onClose, user, onRatingSubmitted }) {
   const [ratingData, setRatingData] = useState({
@@ -22,6 +23,7 @@ function ResourceDetailsModal({ resource, onClose, user, onRatingSubmitted }) {
   const [editTitle, setEditTitle] = useState(resource?.title || '')
   const [editDescription, setEditDescription] = useState(resource?.description || '')
   const [editResourceType, setEditResourceType] = useState(resource?.resource_type || '')
+  const [showReportModal, setShowReportModal] = useState(false)
 
   const isOwner =
     user?.id && Number(user.id) === Number(resource?.uploaded_by)
@@ -191,6 +193,11 @@ function ResourceDetailsModal({ resource, onClose, user, onRatingSubmitted }) {
             {resource.uploader_role === 'teacher' && (
               <span className="faculty-badge">Faculty Verified</span>
             )}
+            {resource.quality_labels && resource.quality_labels.map((lbl) => (
+              <span key={lbl} className={`quality-badge badge-${lbl.toLowerCase().replace(/\s+/g, '-')}`}>
+                {lbl === 'Verified' ? '🛡️ Verified' : lbl === 'Highly Rated' ? '★ Highly Rated' : lbl === 'Popular' ? '🔥 Popular' : '⚠️ Needs Review'}
+              </span>
+            ))}
           </div>
           <h2 className="modal-title">{resource.title}</h2>
           {isEditing && (
@@ -411,9 +418,19 @@ function ResourceDetailsModal({ resource, onClose, user, onRatingSubmitted }) {
             </button>
           )}
           {user && (
-            <button type="button" className="btn btn-secondary" onClick={handleToggleSaved} disabled={savingResource}>
-              {savingResource ? 'Saving...' : isSaved ? 'Remove Saved' : 'Save Resource'}
-            </button>
+            <>
+              <button
+                type="button"
+                className="btn btn-outline"
+                onClick={() => setShowReportModal(true)}
+                style={{ fontSize: '0.82rem', padding: '0.4rem 0.75rem', color: '#ef4444', borderColor: '#fca5a5' }}
+              >
+                🚩 Report
+              </button>
+              <button type="button" className="btn btn-secondary" onClick={handleToggleSaved} disabled={savingResource}>
+                {savingResource ? 'Saving...' : isSaved ? 'Remove Saved' : 'Save Resource'}
+              </button>
+            </>
           )}
           {resource.filename && (
             <>
@@ -452,6 +469,13 @@ function ResourceDetailsModal({ resource, onClose, user, onRatingSubmitted }) {
           </button>
         </div>
       </div>
+      {showReportModal && (
+        <ReportResourceModal
+          resource={resource}
+          user={user}
+          onClose={() => setShowReportModal(false)}
+        />
+      )}
     </div>
   )
 }
