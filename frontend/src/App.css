@@ -202,6 +202,7 @@
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  gap: 0.85rem;
 }
 
 
@@ -595,6 +596,10 @@
   .nav-hamburger {
     font-size: 1.3rem;
     padding: 0.2rem;
+  }
+
+  .nav-actions {
+    gap: 0.5rem;
   }
 
   .auth-nav-buttons {
@@ -1249,6 +1254,8 @@
 
 .user-menu-wrapper {
   position: relative;
+  display: flex;
+  align-items: center;
 }
 
 .user-profile-btn {
@@ -2212,6 +2219,7 @@
   .nav-actions {
     grid-column: 3;
     grid-row: 1;
+    gap: 0.65rem;
   }
 
   /* Hide nav-links by default on mobile; show when open */
@@ -2886,16 +2894,17 @@
    ══════════════════════════════════════════ */
 .nav-notif-btn {
   position: relative;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
+  width: 38px;
+  height: 38px;
   border-radius: 50%;
-  border: 1px solid rgba(226, 232, 240, 0.8);
+  border: 1px solid rgba(226, 232, 240, 0.85);
   background: #ffffff;
   color: #475569;
   cursor: pointer;
+  flex-shrink: 0;
   transition: all 0.2s ease;
 }
 
@@ -2903,6 +2912,7 @@
   background: #f1f5f9;
   color: #6366f1;
   border-color: #cbd5e1;
+  transform: scale(1.05);
 }
 
 .notif-badge {
