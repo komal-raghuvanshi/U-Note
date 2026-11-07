@@ -223,6 +223,76 @@ class AuthRouteTests(unittest.TestCase):
         self.assertEqual(photo_response.data, b"photo bytes")
         photo_response.close()
 
+    def test_login_fails_with_invalid_password(self):
+        cursor = MagicMock()
+        cursor.fetchone.return_value = {
+            "user_id": 1,
+            "name": "Test User",
+            "email": "test@example.com",
+            "password_hash": generate_password_hash("correctpassword"),
+            "role": "student",
+            "profile_photo": None,
+            "branch": "AIML",
+            "semester": "Semester 4",
+        }
+        connection = MagicMock()
+        connection.cursor.return_value = cursor
+
+        with patch.object(auth, "get_db_connection", return_value=connection):
+            response = self.client.post("/login", json={
+                "email": "test@example.com",
+                "password": "wrongpassword",
+            })
+
+        self.assertEqual(response.status_code, 401)
+        self.assertIn("error", response.get_json())
+
+    def test_login_fails_with_unregistered_email(self):
+        cursor = MagicMock()
+        cursor.fetchone.return_value = None
+        connection = MagicMock()
+        connection.cursor.return_value = cursor
+
+        with patch.object(auth, "get_db_connection", return_value=connection):
+            response = self.client.post("/login", json={
+                "email": "notfound@example.com",
+                "password": "somepassword",
+            })
+
+        self.assertEqual(response.status_code, 401)
+        self.assertIn("error", response.get_json())
+
+    def test_signup_fails_with_duplicate_email(self):
+        cursor = MagicMock()
+        cursor.fetchone.return_value = {"user_id": 5}
+        connection = MagicMock()
+        connection.cursor.return_value = cursor
+
+        with patch.object(auth, "get_db_connection", return_value=connection):
+            response = self.client.post("/signup", json={
+                "name": "Duplicate User",
+                "email": "existing@example.com",
+                "password": "validpassword123",
+                "role": "student",
+                "branch": "AIML",
+                "semester": 4,
+            })
+
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("already registered", response.get_json()["error"])
+
+    def test_signup_fails_with_short_password(self):
+        response = self.client.post("/signup", json={
+            "name": "Short Password",
+            "email": "short@example.com",
+            "password": "short",
+            "role": "student",
+            "branch": "AIML",
+            "semester": 4,
+        })
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("error", response.get_json())
+
     def test_profile_requires_authentication(self):
         with patch.object(auth, "get_db_connection") as get_connection:
             response = self.client.get("/profile")

@@ -7,7 +7,7 @@ const MAX_RESOURCE_FILE_SIZE = import.meta.env.PROD
   : 25 * 1024 * 1024
 const MAX_RESOURCE_FILE_SIZE_MB = MAX_RESOURCE_FILE_SIZE / (1024 * 1024)
 
-function ShareResource({ onBack, user, requestId }) {
+function ShareResource({ onBack, onNavigate, user, requestId }) {
   const [submitted, setSubmitted] = useState(false)
   const [file, setFile] = useState(null)
   const [error, setError] = useState('')
@@ -228,11 +228,31 @@ function ShareResource({ onBack, user, requestId }) {
           </div>
 
           {!user && (
-            <div className="prototype-badge-box" style={{ backgroundColor: '#fffbeb', borderColor: '#fef3c7' }}>
-              <span className="prototype-badge-pill" style={{ backgroundColor: '#d97706' }}>Notice</span>
-              <p className="prototype-badge-text" style={{ color: '#92400e' }}>
-                You must be logged in to share resources.
-              </p>
+            <div className="prototype-badge-box auth-notice-box" style={{ backgroundColor: '#eff6ff', borderColor: '#bfdbfe', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
+              <div>
+                <span className="prototype-badge-pill" style={{ backgroundColor: '#1d4ed8' }}>Login Required</span>
+                <p className="prototype-badge-text" style={{ color: '#1e40af', marginTop: '0.35rem' }}>
+                  You must be logged in to upload and share study resources.
+                </p>
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  style={{ padding: '0.45rem 1rem', fontSize: '0.875rem' }}
+                  onClick={() => onNavigate ? onNavigate('/login') : (window.location.href = '/login')}
+                >
+                  Log In
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-outline"
+                  style={{ padding: '0.45rem 1rem', fontSize: '0.875rem' }}
+                  onClick={() => onNavigate ? onNavigate('/signup') : (window.location.href = '/signup')}
+                >
+                  Sign Up
+                </button>
+              </div>
             </div>
           )}
 
@@ -501,9 +521,10 @@ function ShareResource({ onBack, user, requestId }) {
                 <button
                   type="submit"
                   className="btn btn-primary"
-                  disabled={uploading || loadingRequest || (requestId && linkedRequest?.status !== 'Pending')}
+                  disabled={!user || uploading || loadingRequest || (requestId && linkedRequest?.status !== 'Pending')}
+                  title={!user ? 'Please log in to submit a resource' : undefined}
                 >
-                  {uploading ? 'Uploading...' : 'Submit Resource'}
+                  {uploading ? 'Uploading...' : !user ? 'Log In to Submit' : 'Submit Resource'}
                 </button>
 
                 <button

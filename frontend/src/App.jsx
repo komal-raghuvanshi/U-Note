@@ -204,6 +204,7 @@ function App() {
           <ShareResource
             requestId={new URLSearchParams(window.location.search).get('request_id')}
             onBack={() => navigate(new URLSearchParams(window.location.search).has('request_id') ? '/requests' : '/')}
+            onNavigate={navigate}
             user={user}
           />
         )
@@ -421,7 +422,7 @@ function App() {
         />
       )}
 
-      {showProfileModal && (
+      {showProfileModal && user && (
         <ProfileModal
           user={user}
           initialTab={profileInitialTab}
