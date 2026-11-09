@@ -9,6 +9,24 @@ except ImportError:
 branches_bp = Blueprint("branches", __name__)
 
 
+BRANCH_ALIASES = {
+    "electronics and communication engineering": "EC",
+    "electronics & communication engineering": "EC",
+    "electronics and communication": "EC",
+    "mechanical engineering": "ME",
+    "computer science and engineering": "CSE",
+    "computer science & engineering": "CSE",
+    "information technology": "IT",
+    "artificial intelligence and machine learning": "AIML",
+    "data science": "DS",
+}
+
+def resolve_branch_name(branch_name):
+    if not branch_name:
+        return ""
+    cleaned = str(branch_name).strip()
+    return BRANCH_ALIASES.get(cleaned.lower(), cleaned)
+
 @branches_bp.route("/branches", methods=["GET"])
 def get_branches():
     connection = None
@@ -35,7 +53,7 @@ def get_branches():
 
 @branches_bp.route("/semesters", methods=["GET"])
 def get_semesters():
-    branch = request.args.get("branch", "").strip()
+    branch = resolve_branch_name(request.args.get("branch", ""))
     if not branch:
         return jsonify({"count": 0, "semesters": []}), 200
 

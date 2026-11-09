@@ -6,6 +6,25 @@ except ImportError:
     from backend.db import get_db_connection, table_exists
 
 
+BRANCH_ALIASES = {
+    'electronics and communication engineering': 'EC',
+    'electronics and communication': 'EC',
+    'electronics & communication engineering': 'EC',
+    'mechanical engineering': 'ME',
+    'computer science engineering': 'CSE',
+    'computer science and engineering': 'CSE',
+    'information technology': 'IT',
+    'artificial intelligence and machine learning': 'AIML',
+    'data science': 'DS',
+    'civil engineering': 'Civil',
+}
+
+def resolve_branch_name(branch_name):
+    if not branch_name:
+        return branch_name
+    normalized = branch_name.strip().lower()
+    return BRANCH_ALIASES.get(normalized, branch_name.strip())
+
 subjects_bp = Blueprint("subjects", __name__)
 
 
@@ -62,7 +81,7 @@ def get_subjects():
 
         conditions = []
         values = []
-        branch = request.args.get("branch")
+        branch = resolve_branch_name(request.args.get("branch"))
         semester = request.args.get("semester")
 
         if branch:
@@ -173,7 +192,7 @@ def get_subject_by_id(subject_id):
 def get_units():
     subject_id_raw = request.args.get("subject_id")
     subject_name = request.args.get("subject")
-    branch = request.args.get("branch")
+    branch = resolve_branch_name(request.args.get("branch"))
     semester = request.args.get("semester")
 
     subject_id = None

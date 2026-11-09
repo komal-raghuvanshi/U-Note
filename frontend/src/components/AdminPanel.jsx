@@ -303,7 +303,7 @@ function AdminPanel({ user, onNavigate }) {
     return (
       <div className="section-container" style={{ padding: '4rem 1rem', textAlign: 'center' }}>
         <h2>Authentication Required</h2>
-        <p style={{ color: '#64748b', margin: '1rem 0' }}>Please log in with an administrator account to access the Admin Panel.</p>
+        <p style={{ color: 'var(--text-muted)', margin: '1rem 0' }}>Please log in with an administrator account to access the Admin Panel.</p>
         <button type="button" className="btn btn-primary" onClick={() => onNavigate('/login')}>
           Go to Login
         </button>
@@ -327,16 +327,16 @@ function AdminPanel({ user, onNavigate }) {
   }
 
   return (
-    <div className="admin-page" style={{ minHeight: '80vh', padding: '2rem 1rem', background: '#f8fafc' }}>
+    <div className="admin-page" style={{ minHeight: '80vh', padding: '2rem 1rem', background: 'var(--bg-light)' }}>
       <div className="section-container" style={{ maxWidth: '1200px', margin: '0 auto' }}>
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
               <span style={{ fontSize: '1.6rem' }}>⚙️</span>
-              <h1 style={{ fontSize: '1.75rem', fontWeight: 700, margin: 0, color: '#0f172a' }}>Admin Dashboard</h1>
+              <h1 style={{ fontSize: '1.75rem', fontWeight: 700, margin: 0, color: 'var(--text-dark)' }}>Admin Dashboard</h1>
             </div>
-            <p style={{ margin: '0.25rem 0 0', color: '#64748b', fontSize: '0.92rem' }}>
+            <p style={{ margin: '0.25rem 0 0', color: 'var(--text-muted)', fontSize: '0.92rem' }}>
               Manage users, study materials, student reports, and request fulfillment.
             </p>
           </div>
@@ -363,7 +363,7 @@ function AdminPanel({ user, onNavigate }) {
         )}
 
         {/* Admin Navigation Tabs */}
-        <div className="admin-tabs" style={{ display: 'flex', gap: '0.5rem', borderBottom: '2px solid #e2e8f0', marginBottom: '1.5rem', overflowX: 'auto', paddingBottom: '2px' }}>
+        <div className="admin-tabs" style={{ display: 'flex', gap: '0.5rem', borderBottom: '2px solid var(--border-color)', marginBottom: '1.5rem', overflowX: 'auto', paddingBottom: '2px' }}>
           {[
             { id: 'dashboard', label: '📊 Dashboard Overview' },
             { id: 'users', label: '👥 User Accounts' },
@@ -380,7 +380,7 @@ function AdminPanel({ user, onNavigate }) {
                 padding: '0.65rem 1.15rem',
                 border: 'none',
                 background: activeTab === tab.id ? '#6366f1' : 'transparent',
-                color: activeTab === tab.id ? '#ffffff' : '#64748b',
+                color: activeTab === tab.id ? '#ffffff' : 'var(--text-secondary)',
                 fontWeight: 600,
                 borderRadius: '8px 8px 0 0',
                 cursor: 'pointer',
@@ -398,36 +398,36 @@ function AdminPanel({ user, onNavigate }) {
           <div>
             {/* Metric Cards Grid */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>
-              <div style={{ background: '#fff', borderRadius: '12px', padding: '1.25rem', boxShadow: '0 1px 3px rgba(0,0,0,0.08)', border: '1px solid #e2e8f0' }}>
-                <span style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 600 }}>TOTAL USERS</span>
-                <div style={{ fontSize: '1.85rem', fontWeight: 800, color: '#1e293b', marginTop: '0.25rem' }}>
+              <div style={{ background: 'var(--card-bg)', borderRadius: '12px', padding: '1.25rem', boxShadow: '0 1px 3px rgba(0,0,0,0.08)', border: '1px solid var(--border-color)' }}>
+                <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 600 }}>TOTAL USERS</span>
+                <div style={{ fontSize: '1.85rem', fontWeight: 800, color: 'var(--text-dark)', marginTop: '0.25rem' }}>
                   {stats ? stats.total_users : '...'}
                 </div>
               </div>
 
-              <div style={{ background: '#fff', borderRadius: '12px', padding: '1.25rem', boxShadow: '0 1px 3px rgba(0,0,0,0.08)', border: '1px solid #e2e8f0' }}>
-                <span style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 600 }}>RESOURCES</span>
+              <div style={{ background: 'var(--card-bg)', borderRadius: '12px', padding: '1.25rem', boxShadow: '0 1px 3px rgba(0,0,0,0.08)', border: '1px solid var(--border-color)' }}>
+                <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 600 }}>RESOURCES</span>
                 <div style={{ fontSize: '1.85rem', fontWeight: 800, color: '#6366f1', marginTop: '0.25rem' }}>
                   {stats ? stats.total_resources : '...'}
                 </div>
               </div>
 
-              <div style={{ background: '#fff', borderRadius: '12px', padding: '1.25rem', boxShadow: '0 1px 3px rgba(0,0,0,0.08)', border: '1px solid #e2e8f0' }}>
-                <span style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 600 }}>PENDING APPROVALS</span>
+              <div style={{ background: 'var(--card-bg)', borderRadius: '12px', padding: '1.25rem', boxShadow: '0 1px 3px rgba(0,0,0,0.08)', border: '1px solid var(--border-color)' }}>
+                <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 600 }}>PENDING APPROVALS</span>
                 <div style={{ fontSize: '1.85rem', fontWeight: 800, color: '#f59e0b', marginTop: '0.25rem' }}>
                   {stats ? stats.pending_approvals : '...'}
                 </div>
               </div>
 
-              <div style={{ background: '#fff', borderRadius: '12px', padding: '1.25rem', boxShadow: '0 1px 3px rgba(0,0,0,0.08)', border: '1px solid #e2e8f0' }}>
-                <span style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 600 }}>PENDING REPORTS</span>
+              <div style={{ background: 'var(--card-bg)', borderRadius: '12px', padding: '1.25rem', boxShadow: '0 1px 3px rgba(0,0,0,0.08)', border: '1px solid var(--border-color)' }}>
+                <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 600 }}>PENDING REPORTS</span>
                 <div style={{ fontSize: '1.85rem', fontWeight: 800, color: '#ef4444', marginTop: '0.25rem' }}>
                   {stats ? stats.pending_reports : '...'}
                 </div>
               </div>
 
-              <div style={{ background: '#fff', borderRadius: '12px', padding: '1.25rem', boxShadow: '0 1px 3px rgba(0,0,0,0.08)', border: '1px solid #e2e8f0' }}>
-                <span style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 600 }}>RESOURCE REQUESTS</span>
+              <div style={{ background: 'var(--card-bg)', borderRadius: '12px', padding: '1.25rem', boxShadow: '0 1px 3px rgba(0,0,0,0.08)', border: '1px solid var(--border-color)' }}>
+                <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 600 }}>RESOURCE REQUESTS</span>
                 <div style={{ fontSize: '1.85rem', fontWeight: 800, color: '#0ea5e9', marginTop: '0.25rem' }}>
                   {stats ? stats.total_requests : '...'}
                 </div>
@@ -435,16 +435,16 @@ function AdminPanel({ user, onNavigate }) {
             </div>
 
             {/* Recent Platform Activities */}
-            <div style={{ background: '#fff', borderRadius: '12px', padding: '1.5rem', boxShadow: '0 1px 3px rgba(0,0,0,0.08)', border: '1px solid #e2e8f0' }}>
+            <div style={{ background: 'var(--card-bg)', borderRadius: '12px', padding: '1.5rem', boxShadow: '0 1px 3px rgba(0,0,0,0.08)', border: '1px solid var(--border-color)' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
-                <h2 style={{ fontSize: '1.15rem', fontWeight: 700, margin: 0, color: '#1e293b' }}>Recent Platform Activity</h2>
+                <h2 style={{ fontSize: '1.15rem', fontWeight: 700, margin: 0, color: 'var(--text-dark)' }}>Recent Platform Activity</h2>
                 <button type="button" className="btn btn-secondary" onClick={loadDashboardStats} style={{ fontSize: '0.8rem', padding: '0.3rem 0.75rem' }}>
                   Refresh
                 </button>
               </div>
 
               {recentActivities.length === 0 ? (
-                <p style={{ color: '#94a3b8', fontSize: '0.9rem', margin: '1rem 0' }}>No recent activity records available.</p>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', margin: '1rem 0' }}>No recent activity records available.</p>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                   {recentActivities.map((act, idx) => (
@@ -455,7 +455,7 @@ function AdminPanel({ user, onNavigate }) {
                         alignItems: 'center',
                         justifyContent: 'space-between',
                         padding: '0.65rem 0.85rem',
-                        background: '#f8fafc',
+                        background: 'var(--bg-light)',
                         borderRadius: '8px',
                         fontSize: '0.9rem'
                       }}
@@ -464,7 +464,7 @@ function AdminPanel({ user, onNavigate }) {
                         {act.type === 'report' ? '🚩 ' : '📤 '}
                         {act.text}
                       </span>
-                      <span style={{ fontSize: '0.78rem', color: '#94a3b8' }}>
+                      <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
                         {act.created_at ? new Date(act.created_at).toLocaleString('en-IN') : ''}
                       </span>
                     </div>
@@ -477,9 +477,9 @@ function AdminPanel({ user, onNavigate }) {
 
         {/* TAB 2: USER MANAGEMENT */}
         {activeTab === 'users' && (
-          <div style={{ background: '#fff', borderRadius: '12px', padding: '1.5rem', boxShadow: '0 1px 3px rgba(0,0,0,0.08)', border: '1px solid #e2e8f0' }}>
+          <div style={{ background: 'var(--card-bg)', borderRadius: '12px', padding: '1.5rem', boxShadow: '0 1px 3px rgba(0,0,0,0.08)', border: '1px solid var(--border-color)' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.25rem' }}>
-              <h2 style={{ fontSize: '1.15rem', fontWeight: 700, margin: 0, color: '#1e293b' }}>
+              <h2 style={{ fontSize: '1.15rem', fontWeight: 700, margin: 0, color: 'var(--text-dark)' }}>
                 Registered Users ({usersList.length})
               </h2>
 
@@ -510,14 +510,14 @@ function AdminPanel({ user, onNavigate }) {
             </div>
 
             {loading ? (
-              <p style={{ textAlign: 'center', color: '#64748b', padding: '2rem 0' }}>Loading user accounts...</p>
+              <p style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem 0' }}>Loading user accounts...</p>
             ) : usersList.length === 0 ? (
-              <p style={{ textAlign: 'center', color: '#94a3b8', padding: '2rem 0' }}>No users match the search filters.</p>
+              <p style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem 0' }}>No users match the search filters.</p>
             ) : (
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.88rem', textAlign: 'left' }}>
                   <thead>
-                    <tr style={{ background: '#f1f5f9', color: '#475569', borderBottom: '2px solid #e2e8f0' }}>
+                    <tr style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)', borderBottom: '2px solid var(--border-color)' }}>
                       <th style={{ padding: '0.75rem 1rem' }}>User</th>
                       <th style={{ padding: '0.75rem 1rem' }}>Academic Info</th>
                       <th style={{ padding: '0.75rem 1rem' }}>Role</th>
@@ -528,12 +528,12 @@ function AdminPanel({ user, onNavigate }) {
                   </thead>
                   <tbody>
                     {usersList.map((u) => (
-                      <tr key={u.user_id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                      <tr key={u.user_id} style={{ borderBottom: '1px solid var(--border-color)' }}>
                         <td style={{ padding: '0.75rem 1rem' }}>
-                          <strong style={{ display: 'block', color: '#1e293b' }}>{u.name}</strong>
-                          <span style={{ fontSize: '0.8rem', color: '#64748b' }}>{u.email}</span>
+                          <strong style={{ display: 'block', color: 'var(--text-dark)' }}>{u.name}</strong>
+                          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{u.email}</span>
                         </td>
-                        <td style={{ padding: '0.75rem 1rem', color: '#475569' }}>
+                        <td style={{ padding: '0.75rem 1rem', color: 'var(--text-secondary)' }}>
                           {u.branch || 'General'} · {u.semester || 'N/A'}
                         </td>
                         <td style={{ padding: '0.75rem 1rem' }}>
@@ -555,7 +555,7 @@ function AdminPanel({ user, onNavigate }) {
                             <option value="admin">Admin</option>
                           </select>
                         </td>
-                        <td style={{ padding: '0.75rem 1rem', color: '#475569' }}>
+                        <td style={{ padding: '0.75rem 1rem', color: 'var(--text-secondary)' }}>
                           {u.uploads_count || 0}
                         </td>
                         <td style={{ padding: '0.75rem 1rem' }}>
@@ -597,9 +597,9 @@ function AdminPanel({ user, onNavigate }) {
 
         {/* TAB 3: RESOURCE MANAGEMENT */}
         {activeTab === 'resources' && (
-          <div style={{ background: '#fff', borderRadius: '12px', padding: '1.5rem', boxShadow: '0 1px 3px rgba(0,0,0,0.08)', border: '1px solid #e2e8f0' }}>
+          <div style={{ background: 'var(--card-bg)', borderRadius: '12px', padding: '1.5rem', boxShadow: '0 1px 3px rgba(0,0,0,0.08)', border: '1px solid var(--border-color)' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.25rem' }}>
-              <h2 style={{ fontSize: '1.15rem', fontWeight: 700, margin: 0, color: '#1e293b' }}>
+              <h2 style={{ fontSize: '1.15rem', fontWeight: 700, margin: 0, color: 'var(--text-dark)' }}>
                 Study Resources ({resourcesList.length})
               </h2>
 
@@ -630,14 +630,14 @@ function AdminPanel({ user, onNavigate }) {
             </div>
 
             {loading ? (
-              <p style={{ textAlign: 'center', color: '#64748b', padding: '2rem 0' }}>Loading resources...</p>
+              <p style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem 0' }}>Loading resources...</p>
             ) : resourcesList.length === 0 ? (
-              <p style={{ textAlign: 'center', color: '#94a3b8', padding: '2rem 0' }}>No resources match the selected criteria.</p>
+              <p style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem 0' }}>No resources match the selected criteria.</p>
             ) : (
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.88rem', textAlign: 'left' }}>
                   <thead>
-                    <tr style={{ background: '#f1f5f9', color: '#475569', borderBottom: '2px solid #e2e8f0' }}>
+                    <tr style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)', borderBottom: '2px solid var(--border-color)' }}>
                       <th style={{ padding: '0.75rem 1rem' }}>Resource Title</th>
                       <th style={{ padding: '0.75rem 1rem' }}>Subject & Course</th>
                       <th style={{ padding: '0.75rem 1rem' }}>Uploaded By</th>
@@ -648,15 +648,15 @@ function AdminPanel({ user, onNavigate }) {
                   </thead>
                   <tbody>
                     {resourcesList.map((res) => (
-                      <tr key={res.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                      <tr key={res.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
                         <td style={{ padding: '0.75rem 1rem' }}>
-                          <strong style={{ display: 'block', color: '#1e293b' }}>{res.title}</strong>
-                          <span style={{ fontSize: '0.8rem', color: '#64748b' }}>{res.type}</span>
+                          <strong style={{ display: 'block', color: 'var(--text-dark)' }}>{res.title}</strong>
+                          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{res.type}</span>
                         </td>
-                        <td style={{ padding: '0.75rem 1rem', color: '#475569' }}>
+                        <td style={{ padding: '0.75rem 1rem', color: 'var(--text-secondary)' }}>
                           {res.subject || 'N/A'} · {res.branch} Sem {res.semester}
                         </td>
-                        <td style={{ padding: '0.75rem 1rem', color: '#475569' }}>
+                        <td style={{ padding: '0.75rem 1rem', color: 'var(--text-secondary)' }}>
                           {res.uploader_name || 'Community'}
                         </td>
                         <td style={{ padding: '0.75rem 1rem' }}>
@@ -721,9 +721,9 @@ function AdminPanel({ user, onNavigate }) {
 
         {/* TAB 4: REPORT MANAGEMENT */}
         {activeTab === 'reports' && (
-          <div style={{ background: '#fff', borderRadius: '12px', padding: '1.5rem', boxShadow: '0 1px 3px rgba(0,0,0,0.08)', border: '1px solid #e2e8f0' }}>
+          <div style={{ background: 'var(--card-bg)', borderRadius: '12px', padding: '1.5rem', boxShadow: '0 1px 3px rgba(0,0,0,0.08)', border: '1px solid var(--border-color)' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.25rem' }}>
-              <h2 style={{ fontSize: '1.15rem', fontWeight: 700, margin: 0, color: '#1e293b' }}>
+              <h2 style={{ fontSize: '1.15rem', fontWeight: 700, margin: 0, color: 'var(--text-dark)' }}>
                 Student Reports ({reportsList.length})
               </h2>
 
@@ -746,16 +746,16 @@ function AdminPanel({ user, onNavigate }) {
             </div>
 
             {loading ? (
-              <p style={{ textAlign: 'center', color: '#64748b', padding: '2rem 0' }}>Loading reports...</p>
+              <p style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem 0' }}>Loading reports...</p>
             ) : reportsList.length === 0 ? (
-              <p style={{ textAlign: 'center', color: '#94a3b8', padding: '2rem 0' }}>No reports under this filter.</p>
+              <p style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem 0' }}>No reports under this filter.</p>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                 {reportsList.map((rep) => (
                   <div
                     key={rep.report_id}
                     style={{
-                      border: '1px solid #e2e8f0',
+                      border: '1px solid var(--border-color)',
                       borderRadius: '8px',
                       padding: '1rem',
                       background: rep.status === 'pending' ? '#fffaf0' : '#ffffff'
@@ -773,22 +773,22 @@ function AdminPanel({ user, onNavigate }) {
                         }}>
                           {rep.status.toUpperCase()}
                         </span>
-                        <strong style={{ color: '#1e293b', fontSize: '0.95rem' }}>
+                        <strong style={{ color: 'var(--text-dark)', fontSize: '0.95rem' }}>
                           Reason: {rep.reason}
                         </strong>
                       </div>
-                      <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>
+                      <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                         {rep.created_at ? new Date(rep.created_at).toLocaleString('en-IN') : ''}
                       </span>
                     </div>
 
-                    <p style={{ margin: '0.25rem 0', fontSize: '0.88rem', color: '#475569' }}>
+                    <p style={{ margin: '0.25rem 0', fontSize: '0.88rem', color: 'var(--text-secondary)' }}>
                       <strong>Resource:</strong> {rep.resource_title || `Resource #${rep.resource_id}`} &nbsp;|&nbsp;
                       <strong>Reported by:</strong> {rep.reporter_name} ({rep.reporter_email})
                     </p>
 
                     {rep.details && (
-                      <div style={{ background: '#f8fafc', padding: '0.5rem 0.75rem', borderRadius: '6px', fontSize: '0.85rem', color: '#334155', margin: '0.5rem 0' }}>
+                      <div style={{ background: 'var(--bg-light)', padding: '0.5rem 0.75rem', borderRadius: '6px', fontSize: '0.85rem', color: '#334155', margin: '0.5rem 0' }}>
                         <em>"{rep.details}"</em>
                       </div>
                     )}
@@ -824,10 +824,10 @@ function AdminPanel({ user, onNavigate }) {
               <div className="modal-overlay" onClick={() => setSelectedReport(null)} role="dialog" aria-modal="true">
                 <div className="modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '480px' }}>
                   <button type="button" className="modal-close-icon" onClick={() => setSelectedReport(null)}>&times;</button>
-                  <h3 style={{ margin: '0 0 0.75rem', fontSize: '1.2rem', color: '#1e293b' }}>
+                  <h3 style={{ margin: '0 0 0.75rem', fontSize: '1.2rem', color: 'var(--text-dark)' }}>
                     Process Report #{selectedReport.report_id}
                   </h3>
-                  <p style={{ fontSize: '0.88rem', color: '#475569', marginBottom: '1rem' }}>
+                  <p style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
                     Resource: <strong>{selectedReport.resource_title}</strong>
                   </p>
 
@@ -870,9 +870,9 @@ function AdminPanel({ user, onNavigate }) {
 
         {/* TAB 5: NOTE REQUESTS MANAGEMENT */}
         {activeTab === 'requests' && (
-          <div style={{ background: '#fff', borderRadius: '12px', padding: '1.5rem', boxShadow: '0 1px 3px rgba(0,0,0,0.08)', border: '1px solid #e2e8f0' }}>
+          <div style={{ background: 'var(--card-bg)', borderRadius: '12px', padding: '1.5rem', boxShadow: '0 1px 3px rgba(0,0,0,0.08)', border: '1px solid var(--border-color)' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.25rem' }}>
-              <h2 style={{ fontSize: '1.15rem', fontWeight: 700, margin: 0, color: '#1e293b' }}>
+              <h2 style={{ fontSize: '1.15rem', fontWeight: 700, margin: 0, color: 'var(--text-dark)' }}>
                 Student Requests ({requestsList.length})
               </h2>
 
@@ -896,14 +896,14 @@ function AdminPanel({ user, onNavigate }) {
             </div>
 
             {loading ? (
-              <p style={{ textAlign: 'center', color: '#64748b', padding: '2rem 0' }}>Loading requests...</p>
+              <p style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem 0' }}>Loading requests...</p>
             ) : requestsList.length === 0 ? (
-              <p style={{ textAlign: 'center', color: '#94a3b8', padding: '2rem 0' }}>No student requests found.</p>
+              <p style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem 0' }}>No student requests found.</p>
             ) : (
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.88rem', textAlign: 'left' }}>
                   <thead>
-                    <tr style={{ background: '#f1f5f9', color: '#475569', borderBottom: '2px solid #e2e8f0' }}>
+                    <tr style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)', borderBottom: '2px solid var(--border-color)' }}>
                       <th style={{ padding: '0.75rem 1rem' }}>Request Title</th>
                       <th style={{ padding: '0.75rem 1rem' }}>Requested By</th>
                       <th style={{ padding: '0.75rem 1rem' }}>Course / Branch</th>
@@ -913,17 +913,17 @@ function AdminPanel({ user, onNavigate }) {
                   </thead>
                   <tbody>
                     {requestsList.map((req) => (
-                      <tr key={req.request_id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                      <tr key={req.request_id} style={{ borderBottom: '1px solid var(--border-color)' }}>
                         <td style={{ padding: '0.75rem 1rem' }}>
-                          <strong style={{ display: 'block', color: '#1e293b' }}>{req.title}</strong>
+                          <strong style={{ display: 'block', color: 'var(--text-dark)' }}>{req.title}</strong>
                           {req.description && (
-                            <span style={{ fontSize: '0.8rem', color: '#64748b' }}>{req.description.slice(0, 60)}...</span>
+                            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{req.description.slice(0, 60)}...</span>
                           )}
                         </td>
-                        <td style={{ padding: '0.75rem 1rem', color: '#475569' }}>
+                        <td style={{ padding: '0.75rem 1rem', color: 'var(--text-secondary)' }}>
                           {req.user_name || 'Student'}
                         </td>
-                        <td style={{ padding: '0.75rem 1rem', color: '#475569' }}>
+                        <td style={{ padding: '0.75rem 1rem', color: 'var(--text-secondary)' }}>
                           {req.branch || 'General'} · {req.semester || 'N/A'}
                         </td>
                         <td style={{ padding: '0.75rem 1rem' }}>

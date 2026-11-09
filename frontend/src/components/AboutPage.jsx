@@ -6,7 +6,13 @@ const teamMembers = [
     linkedinUrl: 'https://www.linkedin.com/in/komalraghuvanshi16',
     githubUrl: 'https://github.com/komal-raghuvanshi',
   },
-  { name: 'Khushi Kushwah', role: '3rd Year | B.Tech AI & ML | Database Developer', photoUrl: '', linkedinUrl: '', githubUrl: '' },
+  {
+    name: 'Khushi Kushwah',
+    role: '3rd Year | B.Tech AI & ML | Database Developer',
+    photoUrl: '/team/Khushi_Kushwah.jpeg',
+    linkedinUrl: 'https://www.linkedin.com/in/khushi-kushwah-2a8401331',
+    githubUrl: 'https://github.com/kushwahkhushi300-max',
+  },
   {
     name: 'Sakshi Yadav',
     role: '3rd Year | B.Tech AI & ML | Database Documentation',

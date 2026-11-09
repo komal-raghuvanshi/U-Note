@@ -55,7 +55,17 @@ function NavigationIcon({ name }) {
   )
 }
 
-function Navbar({ onNavigate, currentPath = '/', user, onOpenProfile, onLogout, onOpenNotifications, unreadCount = 0 }) {
+function Navbar({
+  onNavigate,
+  currentPath = '/',
+  user,
+  onOpenProfile,
+  onLogout,
+  onOpenNotifications,
+  unreadCount = 0,
+  theme = 'light',
+  onToggleTheme,
+}) {
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [avatarFailed, setAvatarFailed] = useState(false)
@@ -161,9 +171,68 @@ function Navbar({ onNavigate, currentPath = '/', user, onOpenProfile, onLogout, 
             <NavigationIcon name="contact" />
             <span>Contact Us</span>
           </a>
+
+          {/* Mobile Theme Toggle Button inside mobile drawer */}
+          <button
+            type="button"
+            className="nav-mobile-theme-btn"
+            onClick={() => {
+              if (onToggleTheme) onToggleTheme()
+            }}
+            aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+          >
+            {theme === 'dark' ? '☀️ Switch to Light Mode' : '🌙 Switch to Dark Mode'}
+          </button>
         </nav>
 
         <div className="nav-actions">
+          {/* Universal Light/Dark Mode Toggle Button */}
+          <button
+            type="button"
+            className="theme-toggle-btn"
+            onClick={onToggleTheme}
+            aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+          >
+            {theme === 'dark' ? (
+              <svg
+                viewBox="0 0 24 24"
+                width="19"
+                height="19"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <circle cx="12" cy="12" r="5" />
+                <line x1="12" y1="1" x2="12" y2="3" />
+                <line x1="12" y1="21" x2="12" y2="23" />
+                <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
+                <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+                <line x1="1" y1="12" x2="3" y2="12" />
+                <line x1="21" y1="12" x2="23" y2="12" />
+                <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+                <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+              </svg>
+            ) : (
+              <svg
+                viewBox="0 0 24 24"
+                width="19"
+                height="19"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+              </svg>
+            )}
+          </button>
+
           {user ? (
             <>
               <button
@@ -192,97 +261,97 @@ function Navbar({ onNavigate, currentPath = '/', user, onOpenProfile, onLogout, 
               </button>
 
               <div className="user-menu-wrapper" ref={dropdownRef}>
-              <button
-                type="button"
-                className="nav-avatar-btn"
-                onClick={() => setDropdownOpen((prev) => !prev)}
-                aria-expanded={dropdownOpen}
-                aria-label="User Profile Menu"
-                title={user.name}
-              >
-                {user.avatar && !avatarFailed ? (
-                  <img
-                    src={user.avatar}
-                    alt={user.name}
-                    className="nav-avatar-img"
-                    onError={() => setAvatarFailed(true)}
-                  />
-                ) : (
-                  <span className="nav-avatar-fallback">
-                    {user.name.charAt(0).toUpperCase()}
-                  </span>
-                )}
-              </button>
-
-              {dropdownOpen && (
-                <div className="user-dropdown-menu">
-                  <div className="dropdown-user-info">
-                    <strong>{user.name}</strong>
-                    <span>{user.email}</span>
-                    <span className={`role-badge role-badge-${user.role || 'member'}`}>
-                      {roleLabel}
+                <button
+                  type="button"
+                  className="nav-avatar-btn"
+                  onClick={() => setDropdownOpen((prev) => !prev)}
+                  aria-expanded={dropdownOpen}
+                  aria-label="User Profile Menu"
+                  title={user.name}
+                >
+                  {user.avatar && !avatarFailed ? (
+                    <img
+                      src={user.avatar}
+                      alt={user.name}
+                      className="nav-avatar-img"
+                      onError={() => setAvatarFailed(true)}
+                    />
+                  ) : (
+                    <span className="nav-avatar-fallback">
+                      {user.name.charAt(0).toUpperCase()}
                     </span>
-                  </div>
-                  <div className="dropdown-divider"></div>
-                  {user.role === 'admin' && (
-                    <>
-                      <button
-                        type="button"
-                        className="dropdown-item dropdown-admin-item"
-                        onClick={() => {
-                          setDropdownOpen(false)
-                          onNavigate('/admin')
-                        }}
-                      >
-                        ⚙️ Admin Panel
-                      </button>
-                      <div className="dropdown-divider"></div>
-                    </>
                   )}
-                  <button
-                    type="button"
-                    className="dropdown-item"
-                    onClick={() => {
-                      setDropdownOpen(false)
-                      onOpenProfile('profile')
-                    }}
-                  >
-                    My Profile
-                  </button>
-                  <button
-                    type="button"
-                    className="dropdown-item"
-                    onClick={() => {
-                      setDropdownOpen(false)
-                      onOpenProfile('shared')
-                    }}
-                  >
-                    My Shared Resources
-                  </button>
-                  <button
-                    type="button"
-                    className="dropdown-item"
-                    onClick={() => {
-                      setDropdownOpen(false)
-                      onOpenProfile('saved')
-                    }}
-                  >
-                    Saved Resources
-                  </button>
-                  <div className="dropdown-divider"></div>
-                  <button
-                    type="button"
-                    className="dropdown-item dropdown-logout-btn"
-                    onClick={() => {
-                      setDropdownOpen(false)
-                      onLogout()
-                    }}
-                  >
-                    Log Out
-                  </button>
-                </div>
-              )}
-            </div>
+                </button>
+
+                {dropdownOpen && (
+                  <div className="user-dropdown-menu">
+                    <div className="dropdown-user-info">
+                      <strong>{user.name}</strong>
+                      <span>{user.email}</span>
+                      <span className={`role-badge role-badge-${user.role || 'member'}`}>
+                        {roleLabel}
+                      </span>
+                    </div>
+                    <div className="dropdown-divider"></div>
+                    {user.role === 'admin' && (
+                      <>
+                        <button
+                          type="button"
+                          className="dropdown-item dropdown-admin-item"
+                          onClick={() => {
+                            setDropdownOpen(false)
+                            onNavigate('/admin')
+                          }}
+                        >
+                          ⚙️ Admin Panel
+                        </button>
+                        <div className="dropdown-divider"></div>
+                      </>
+                    )}
+                    <button
+                      type="button"
+                      className="dropdown-item"
+                      onClick={() => {
+                        setDropdownOpen(false)
+                        onOpenProfile('profile')
+                      }}
+                    >
+                      My Profile
+                    </button>
+                    <button
+                      type="button"
+                      className="dropdown-item"
+                      onClick={() => {
+                        setDropdownOpen(false)
+                        onOpenProfile('shared')
+                      }}
+                    >
+                      My Shared Resources
+                    </button>
+                    <button
+                      type="button"
+                      className="dropdown-item"
+                      onClick={() => {
+                        setDropdownOpen(false)
+                        onOpenProfile('saved')
+                      }}
+                    >
+                      Saved Resources
+                    </button>
+                    <div className="dropdown-divider"></div>
+                    <button
+                      type="button"
+                      className="dropdown-item dropdown-logout-btn"
+                      onClick={() => {
+                        setDropdownOpen(false)
+                        onLogout()
+                      }}
+                    >
+                      Log Out
+                    </button>
+                  </div>
+                )}
+              </div>
             </>
           ) : (
             <div className="auth-nav-buttons">

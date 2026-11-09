@@ -230,7 +230,7 @@ function NotificationsModal({ user, onClose, onNavigate, onUnreadCountChange }) 
         </button>
 
         {/* Modal Header */}
-        <div className="modal-header" style={{ borderBottom: '1px solid #e2e8f0', paddingBottom: '0.85rem' }}>
+        <div className="modal-header" style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: '0.85rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingRight: '2rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
               <h2 className="modal-title" style={{ margin: 0, fontSize: '1.25rem' }}>Notifications</h2>
@@ -271,14 +271,14 @@ function NotificationsModal({ user, onClose, onNavigate, onUnreadCountChange }) 
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
-              background: '#f8fafc',
-              border: '1px solid #e2e8f0',
+              background: 'var(--bg-secondary)',
+              border: '1px solid var(--border-color)',
               borderRadius: '8px',
               padding: '0.5rem 0.75rem',
               marginTop: '0.75rem',
               fontSize: '0.85rem'
             }}>
-              <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#475569' }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: 'var(--text-secondary)' }}>
                 <span>🔔</span> Desktop Push Alerts
               </span>
               <button
@@ -297,7 +297,7 @@ function NotificationsModal({ user, onClose, onNavigate, onUnreadCountChange }) 
         {/* Modal Body */}
         <div className="notifications-list-body" style={{ overflowY: 'auto', flex: 1, padding: '0.75rem 0' }}>
           {loading ? (
-            <div style={{ textAlign: 'center', padding: '2.5rem 1rem', color: '#64748b' }}>
+            <div style={{ textAlign: 'center', padding: '2.5rem 1rem', color: 'var(--text-muted)' }}>
               <p>Loading notifications...</p>
             </div>
           ) : error ? (
@@ -308,9 +308,9 @@ function NotificationsModal({ user, onClose, onNavigate, onUnreadCountChange }) 
               </button>
             </div>
           ) : notifications.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '3rem 1rem', color: '#94a3b8' }}>
+            <div style={{ textAlign: 'center', padding: '3rem 1rem', color: 'var(--text-muted)' }}>
               <div style={{ fontSize: '2.5rem', marginBottom: '0.5rem' }}>🎉</div>
-              <h3 style={{ fontSize: '1.05rem', color: '#475569', marginBottom: '0.25rem' }}>All caught up!</h3>
+              <h3 style={{ fontSize: '1.05rem', color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>All caught up!</h3>
               <p style={{ fontSize: '0.875rem' }}>You do not have any new notifications at the moment.</p>
             </div>
           ) : (
@@ -325,8 +325,8 @@ function NotificationsModal({ user, onClose, onNavigate, onUnreadCountChange }) 
                     alignItems: 'flex-start',
                     gap: '0.75rem',
                     padding: '0.85rem 1rem',
-                    borderBottom: '1px solid #f1f5f9',
-                    background: notif.is_read ? '#ffffff' : '#f8faff',
+                    borderBottom: '1px solid var(--border-color)',
+                    background: notif.is_read ? 'var(--card-bg)' : 'var(--bg-secondary)',
                     transition: 'background 0.15s ease',
                     position: 'relative'
                   }}
@@ -358,17 +358,17 @@ function NotificationsModal({ user, onClose, onNavigate, onUnreadCountChange }) 
 
                   <div style={{ flex: 1, minWidth: 0, paddingRight: '1rem' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.2rem' }}>
-                      <strong style={{ fontSize: '0.92rem', color: notif.is_read ? '#334155' : '#0f172a' }}>
+                      <strong className={notif.is_read ? 'notification-title-read' : 'notification-title-unread'} style={{ fontSize: '0.92rem' }}>
                         {notif.title}
                       </strong>
                       {!notif.is_read && (
                         <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#6366f1', display: 'inline-block' }} />
                       )}
                     </div>
-                    <p style={{ margin: 0, fontSize: '0.85rem', color: '#475569', lineHeight: 1.4 }}>
+                    <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
                       {notif.message}
                     </p>
-                    <span style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'block', marginTop: '0.35rem' }}>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginTop: '0.35rem' }}>
                       {formatRelativeTime(notif.created_at)}
                     </span>
                   </div>
@@ -388,7 +388,7 @@ function NotificationsModal({ user, onClose, onNavigate, onUnreadCountChange }) 
                       type="button"
                       title="Delete notification"
                       onClick={(e) => handleDeleteNotification(notif.id, e)}
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '0.85rem', padding: '0.2rem' }}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: '0.85rem', padding: '0.2rem' }}
                     >
                       &times;
                     </button>

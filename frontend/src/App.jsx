@@ -48,6 +48,33 @@ function App() {
   })
   const savedAvatar = user?.avatar
 
+  // Theme Management (Light / Dark)
+  const [theme, setTheme] = useState(() => {
+    try {
+      const saved = localStorage.getItem('unote_theme')
+      if (saved === 'dark' || saved === 'light') return saved
+      if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        return 'dark'
+      }
+    } catch {
+      // fallback to light mode
+    }
+    return 'light'
+  })
+
+  useEffect(() => {
+    try {
+      document.documentElement.setAttribute('data-theme', theme)
+      localStorage.setItem('unote_theme', theme)
+    } catch {
+      // ignore storage access issues
+    }
+  }, [theme])
+
+  const handleToggleTheme = () => {
+    setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))
+  }
+
   // Fetch unread notifications count
   useEffect(() => {
     if (!user?.token) {
@@ -334,15 +361,7 @@ function App() {
                           {(resource.exam_year || resource.exam_session) && (
                             <span
                               className="pyq-session-badge"
-                              style={{
-                                marginLeft: '0.45rem',
-                                padding: '0.15rem 0.45rem',
-                                fontSize: '0.75rem',
-                                fontWeight: 600,
-                                borderRadius: '4px',
-                                backgroundColor: '#e0e7ff',
-                                color: '#3730a3'
-                              }}
+                              className="pyq-session-badge-inline"
                             >
                               {[resource.exam_session, resource.exam_year].filter(Boolean).join(' ')}
                             </span>
@@ -414,7 +433,7 @@ function App() {
             </section>
 
             {/* 3. Supported Resource Types Reference - Clickable Categories */}
-            <section className="resources-section" id="resource-types" style={{ backgroundColor: '#ffffff', borderTop: '1px solid var(--border-color)' }}>
+            <section className="resources-section resource-types-section" id="resource-types">
               <div className="section-container">
                 <div className="section-header">
                   <h2 className="section-title">Supported Resource Types</h2>
@@ -458,6 +477,8 @@ function App() {
         onNavigate={navigate}
         currentPath={currentPath}
         user={user}
+        theme={theme}
+        onToggleTheme={handleToggleTheme}
         onOpenProfile={(tab) => {
           setProfileInitialTab(tab || 'profile')
           setShowProfileModal(true)

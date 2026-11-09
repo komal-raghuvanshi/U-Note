@@ -557,18 +557,7 @@ function ResourcesPage({ onSelectResource, onShareClick, initialType = '', user 
                   <p className="resource-description">
                     {resource.type}
                     {(resource.exam_year || resource.exam_session) && (
-                      <span
-                        className="pyq-session-badge"
-                        style={{
-                          marginLeft: '0.45rem',
-                          padding: '0.15rem 0.45rem',
-                          fontSize: '0.75rem',
-                          fontWeight: 600,
-                          borderRadius: '4px',
-                          backgroundColor: '#e0e7ff',
-                          color: '#3730a3'
-                        }}
-                      >
+                      <span className="pyq-session-badge">
                         {[resource.exam_session, resource.exam_year].filter(Boolean).join(' ')}
                       </span>
                     )}

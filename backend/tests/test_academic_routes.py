@@ -226,6 +226,21 @@ class AcademicRouteTests(unittest.TestCase):
         first_query = cursor.execute.call_args_list[0].args[0]
         self.assertNotIn("subject_catalogue_metadata", first_query)
 
+    def test_branch_alias_resolution(self):
+        cursor = MagicMock()
+        cursor.fetchall.return_value = []
+        connection = MagicMock()
+        connection.cursor.return_value = cursor
+
+        with patch.object(branches, "get_db_connection", return_value=connection):
+            self.client.get("/semesters?branch=Mechanical%20Engineering")
+            _, parameters = cursor.execute.call_args.args
+            self.assertEqual(parameters, ("ME",))
+
+            self.client.get("/semesters?branch=Electronics%20and%20Communication%20Engineering")
+            _, parameters = cursor.execute.call_args.args
+            self.assertEqual(parameters, ("EC",))
+
 
 if __name__ == "__main__":
     unittest.main()

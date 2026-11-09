@@ -97,7 +97,7 @@ function ReportResourceModal({ resource, user, onClose, onSuccess }) {
               <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.4rem', fontSize: '0.9rem' }}>
                 Resource
               </label>
-              <div style={{ background: '#f8fafc', padding: '0.65rem 0.85rem', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.9rem', color: '#1e293b' }}>
+              <div className="report-resource-info-box">
                 <strong>{resource?.title}</strong>
               </div>
             </div>
