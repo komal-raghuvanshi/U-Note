@@ -10,7 +10,7 @@ function HelpPage({ onNavigate }) {
     },
     {
       q: 'How do I find notes for my specific subject and unit?',
-      a: 'Click on the "Resources" link in the top navigation bar. You can use the search bar to enter your subject name, or use the dropdown filters to choose your Branch, Semester, and Unit (1 through 5).'
+      a: 'Click on the "Resources" link in the top navigation bar. You can use the search bar to enter your subject name, or use the dropdown filters to choose your Branch, Semester, and an available unit for that subject.'
     },
     {
       q: 'What types of resources are supported?',
@@ -18,7 +18,7 @@ function HelpPage({ onNavigate }) {
     },
     {
       q: 'How can I contribute or share my notes?',
-      a: 'Click the "Share Resources" button in the hero section or top banner. Fill out the resource title, choose your branch, semester, subject, and unit, and attach your file (PDF, DOCX, or images). Contributions help build an open community of study materials for all RGPV students.'
+      a: 'Click "Share a Resource", choose your branch, semester, subject, and unit, then upload a PDF or image. YouTube resource types can be submitted as a link. Contributions help build an open community of study materials for all RGPV students.'
     },
     {
       q: 'Are the resources on U-NOTE free to access?',

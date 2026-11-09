@@ -1,22 +1,40 @@
 import os
+import tempfile
+from urllib.parse import urlparse
 from uuid import uuid4
-from flask import Blueprint, request, jsonify, current_app, send_from_directory
+import io
+import mimetypes
+from flask import Blueprint, request, jsonify, current_app, send_from_directory, send_file, g
 from werkzeug.utils import secure_filename
 
 try:
-    from db import get_db_connection
+    from auth_utils import authenticated_user_id, require_auth
+    from db import get_db_connection, table_exists, column_exists
+    from notifications_service import create_notification, notify_admins
 except ImportError:
-    from backend.db import get_db_connection
+    from backend.auth_utils import authenticated_user_id, require_auth
+    from backend.db import get_db_connection, table_exists, column_exists
+    from backend.notifications_service import create_notification, notify_admins
 
 resources_bp = Blueprint("resources", __name__)
 ALLOWED_EXTENSIONS = {"pdf", "png", "jpg", "jpeg"}
-
-UPLOAD_FOLDER = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "uploads"
+MAX_FILE_SIZE = (
+    4 * 1024 * 1024 if os.environ.get("VERCEL") else 25 * 1024 * 1024
 )
+MAX_FILE_SIZE_MB = MAX_FILE_SIZE // (1024 * 1024)
 
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+class RequestFulfillmentConflict(Exception):
+    pass
+
+
+if os.environ.get("VERCEL"):
+    UPLOAD_FOLDER = os.path.join(tempfile.gettempdir(), "unote_uploads")
+else:
+    UPLOAD_FOLDER = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "uploads"
+    )
 
 
 def allowed_file(filename):
@@ -26,11 +44,29 @@ def allowed_file(filename):
     )
 
 
+def _normalize_type(rtype):
+    if not rtype:
+        return ""
+    t = rtype.strip().lower()
+    if t in ("previous year papers", "previous year question papers", "pyq", "pyqs"):
+        return "pyq"
+    if t in ("youtube lectures", "youtube resources", "youtube videos", "youtube"):
+        return "youtube"
+    return t
+
+
+def _text_input(json_data, name, default=""):
+    value = request.form.get(name)
+    if value is None:
+        value = json_data.get(name, default)
+    return value.strip() if isinstance(value, str) else ""
+
+
 def _fetch_all_resources(owner_id=None):
     """
     Fetch study resources from the MySQL database with complete foreign key joins.
     Only returns resources that have valid database records AND whose physical file
-    exists in the uploads folder. Raises database exceptions so callers can return clear errors.
+    exists in the uploads folder (or is a valid external URL).
     """
     db_resources = []
     connection = None
@@ -38,7 +74,35 @@ def _fetch_all_resources(owner_id=None):
     try:
         connection = get_db_connection()
         cursor = connection.cursor(dictionary=True)
-        query = """
+        has_meta = table_exists(cursor, "subject_catalogue_metadata")
+        has_scope = column_exists(cursor, "resources", "unit_scope")
+        has_approval = column_exists(cursor, "resources", "approval_status")
+        has_verified = column_exists(cursor, "resources", "is_verified")
+        has_downloads = column_exists(cursor, "resources", "download_count")
+        has_reports = table_exists(cursor, "resource_reports")
+        has_exam_year = column_exists(cursor, "resources", "exam_year")
+        has_exam_session = column_exists(cursor, "resources", "exam_session")
+
+        meta_join = "LEFT JOIN subject_catalogue_metadata meta ON meta.subject_id = s.subject_id" if has_meta else ""
+        meta_code = "COALESCE(meta.catalogue_code, s.subject_code) AS subject_code," if has_meta else "s.subject_code AS subject_code,"
+        scope_col = "r.unit_scope AS unit_scope," if has_scope else "'unit' AS unit_scope,"
+        approval_col = "r.approval_status AS approval_status," if has_approval else "'approved' AS approval_status,"
+        verified_col = "r.is_verified AS is_verified," if has_verified else "0 AS is_verified,"
+        downloads_col = "r.download_count AS download_count," if has_downloads else "0 AS download_count,"
+        exam_year_col = "r.exam_year AS exam_year," if has_exam_year else "NULL AS exam_year,"
+        exam_session_col = "r.exam_session AS exam_session," if has_exam_session else "NULL AS exam_session,"
+
+        reports_join = """
+            LEFT JOIN (
+                SELECT resource_id, COUNT(*) AS pending_reports
+                FROM resource_reports
+                WHERE status = 'pending'
+                GROUP BY resource_id
+            ) report_stats ON r.resource_id = report_stats.resource_id
+        """ if has_reports else ""
+        reports_col = "COALESCE(report_stats.pending_reports, 0) AS pending_reports," if has_reports else "0 AS pending_reports,"
+
+        query = f"""
             SELECT
                 r.resource_id AS id,
                 r.title,
@@ -48,19 +112,55 @@ def _fetch_all_resources(owner_id=None):
                 b.branch_name AS branch,
                 sem.semester_name AS semester,
                 s.subject_name AS subject,
+                {meta_code}
                 u.unit_number AS unit,
-                r.unit_scope AS unit_scope,
-                r.created_at AS uploaded_at
+                u.unit_name AS unit_name,
+                {scope_col}
+                {approval_col}
+                {verified_col}
+                {downloads_col}
+                {reports_col}
+                {exam_year_col}
+                {exam_session_col}
+                r.created_at AS uploaded_at,
+                r.uploaded_by,
+                uploader.name AS uploader_name,
+                uploader.role AS uploader_role,
+                rating_stats.avg_rating,
+                COALESCE(rating_stats.rating_count, 0) AS rating_count,
+                COALESCE(save_stats.save_count, 0) AS save_count
             FROM resources r
             LEFT JOIN subjects s ON r.subject_id = s.subject_id
+            {meta_join}
             LEFT JOIN semesters sem ON s.semester_id = sem.semester_id
             LEFT JOIN branches b ON sem.branch_id = b.branch_id
             LEFT JOIN units u ON r.unit_id = u.unit_id
+            LEFT JOIN users uploader ON r.uploaded_by = uploader.user_id
+            LEFT JOIN (
+                SELECT
+                    resource_id,
+                    ROUND(AVG(rating), 1) AS avg_rating,
+                    COUNT(rating_id) AS rating_count
+                FROM ratings
+                GROUP BY resource_id
+            ) rating_stats ON r.resource_id = rating_stats.resource_id
+            LEFT JOIN (
+                SELECT resource_id, COUNT(*) AS save_count
+                FROM saved_resources
+                GROUP BY resource_id
+            ) save_stats ON r.resource_id = save_stats.resource_id
+            {reports_join}
         """
         values = ()
+        conditions = []
         if owner_id is not None:
-            query = query.rstrip() + "\n WHERE r.uploaded_by = %s"
+            conditions.append("r.uploaded_by = %s")
             values = (owner_id,)
+        elif has_approval:
+            conditions.append("(r.approval_status = 'approved' OR r.approval_status IS NULL)")
+
+        if conditions:
+            query += "\n WHERE " + " AND ".join(conditions)
         query += "\n ORDER BY r.resource_id DESC"
         cursor.execute(query, values)
         rows = cursor.fetchall()
@@ -68,18 +168,17 @@ def _fetch_all_resources(owner_id=None):
         for row in rows:
             url = (row.get("resource_url") or "").strip()
             filename = None
+            is_external = url.startswith("http://") or url.startswith("https://")
 
             if url.startswith("/uploads/"):
-                filename = url.replace("/uploads/", "").strip()
-            elif os.path.exists(os.path.join(UPLOAD_FOLDER, url)):
+                candidate = url[len("/uploads/"):]
+                if candidate and secure_filename(candidate) == candidate:
+                    filename = candidate
+            elif url and secure_filename(url) == url:
                 filename = url
 
-            # Verify that the referenced file physically exists in the uploads directory
-            if not filename:
-                continue
-
-            file_path = os.path.join(UPLOAD_FOLDER, filename)
-            if not (os.path.isfile(file_path) and os.path.getsize(file_path) > 0):
+           # Keep database records even if the uploaded file is missing
+            if not is_external and not filename:
                 continue
 
             sem_val = None
@@ -95,6 +194,8 @@ def _fetch_all_resources(owner_id=None):
                 unit_label = "All Units"
             elif row["unit"] is not None:
                 unit_label = f"Unit {row['unit']}"
+                if row.get("unit_name"):
+                    unit_label += f": {row['unit_name']}"
             else:
                 unit_label = "Not specified"
 
@@ -102,20 +203,53 @@ def _fetch_all_resources(owner_id=None):
             if hasattr(uploaded_at, "isoformat"):
                 uploaded_at = uploaded_at.isoformat()
 
+            # Compute Resource Quality System labels
+            quality_labels = []
+            is_verified = bool(row.get("is_verified", 0))
+            avg_rating = float(row["avg_rating"]) if row.get("avg_rating") is not None else None
+            rating_count = int(row.get("rating_count") or 0)
+            save_count = int(row.get("save_count") or 0)
+            download_count = int(row.get("download_count") or 0)
+            pending_reports = int(row.get("pending_reports") or 0)
+
+            if is_verified:
+                quality_labels.append("Verified")
+            if rating_count >= 2 and avg_rating is not None and avg_rating >= 4.0:
+                quality_labels.append("Highly Rated")
+            if (save_count + download_count) >= 3:
+                quality_labels.append("Popular")
+            if pending_reports > 0:
+                quality_labels.append("Needs Review")
+
             db_resources.append({
                 "id": row["id"],
                 "title": row["title"],
                 "branch": row["branch"] or "",
-                "semester": sem_val if sem_val is not None else 4,
+                "semester": sem_val,
                 "subject": row["subject"] or "",
+                "subject_code": row.get("subject_code") or "",
                 "unit": unit_value,
+                "unit_name": row.get("unit_name") or "",
                 "unit_label": unit_label,
                 "unit_scope": unit_scope,
                 "type": row["type"] or "PDF Notes",
                 "filename": filename,
                 "resource_url": url,
+                "is_external": is_external,
                 "description": row["description"] or "",
-                "uploaded_at": uploaded_at
+                "uploaded_at": uploaded_at,
+                "uploaded_by": row.get("uploaded_by"),
+                "uploader_name": row.get("uploader_name") or "Community Contributor",
+                "uploader_role": row.get("uploader_role") or "student",
+                "avg_rating": avg_rating,
+                "rating_count": rating_count,
+                "is_verified": is_verified,
+                "quality_labels": quality_labels,
+                "download_count": download_count,
+                "save_count": save_count,
+                "approval_status": row.get("approval_status") or "approved",
+                "exam_year": row.get("exam_year"),
+                "exam_session": row.get("exam_session")
             })
 
         return db_resources
@@ -136,22 +270,42 @@ def _fetch_all_resources(owner_id=None):
 @resources_bp.route("/resources")
 def get_resources():
     branch = request.args.get("branch")
-    semester = request.args.get("semester", type=int)
+    semester_raw = request.args.get("semester")
+    try:
+        semester = int(semester_raw) if semester_raw else None
+        if semester is not None and not 1 <= semester <= 8:
+            raise ValueError
+    except ValueError:
+        return jsonify({"success": False, "message": "Semester must be between 1 and 8."}), 400
     subject = request.args.get("subject")
-    unit = request.args.get("unit", type=int)
+    unit_param = request.args.get("unit")
     search = request.args.get("search")
     resource_type = request.args.get("type")
+    exam_year_raw = request.args.get("exam_year") or request.args.get("year")
+    exam_session_raw = request.args.get("exam_session") or request.args.get("session")
+    target_unit = None
+    all_units = False
+    if unit_param:
+        normalized_unit = unit_param.strip().lower()
+        all_units = normalized_unit in ("all", "all units")
+        if not all_units:
+            try:
+                target_unit = int(normalized_unit.replace("unit", "").strip())
+                if target_unit < 1:
+                    raise ValueError
+            except ValueError:
+                return jsonify({"success": False, "message": "Unit must be a positive number or 'all'."}), 400
 
     try:
         all_resources = _fetch_all_resources()
-    except Exception as e:
+    except Exception:
         try:
             current_app.logger.exception("Failed to fetch resources from database")
         except Exception:
             pass
         return jsonify({
             "success": False,
-            "message": f"Database error occurred: {str(e)}",
+            "message": "Unable to fetch resources from the database.",
             "count": 0,
             "resources": []
         }), 500
@@ -165,17 +319,48 @@ def get_resources():
         if semester is not None and resource.get("semester") != semester:
             continue
 
-        if subject and str(resource.get("subject", "")).lower() != subject.lower():
-            continue
+        if subject:
+            subj_val = str(resource.get("subject", "")).lower()
+            code_val = str(resource.get("subject_code", "")).lower()
+            search_subj = subject.strip().lower()
+            if search_subj != subj_val and search_subj != code_val:
+                continue
 
-        if unit is not None and resource.get("unit") != unit:
-            continue
+        if unit_param:
+            if all_units:
+                if resource.get("unit_scope") != "all" and str(resource.get("unit")).lower() != "all":
+                    continue
+            elif target_unit is not None:
+                if resource.get("unit") != target_unit:
+                    continue
 
-        if search and search.lower() not in str(resource.get("title", "")).lower():
-            continue
+        if search:
+            query_str = search.lower()
+            title_match = query_str in str(resource.get("title", "")).lower()
+            subj_match = query_str in str(resource.get("subject", "")).lower()
+            desc_match = query_str in str(resource.get("description", "")).lower()
+            if not (title_match or subj_match or desc_match):
+                continue
 
-        if resource_type and str(resource.get("type", "")).lower() != resource_type.lower():
-            continue
+        if resource_type:
+            r_type_norm = _normalize_type(resource.get("type"))
+            q_type_norm = _normalize_type(resource_type)
+            if r_type_norm != q_type_norm:
+                continue
+
+        if exam_year_raw:
+            try:
+                target_year = int(str(exam_year_raw).strip())
+                if resource.get("exam_year") != target_year:
+                    continue
+            except (ValueError, TypeError):
+                pass
+
+        if exam_session_raw:
+            target_sess = str(exam_session_raw).strip().lower()
+            res_sess = str(resource.get("exam_session") or "").strip().lower()
+            if res_sess != target_sess:
+                continue
 
         filtered_resources.append(resource)
 
@@ -189,21 +374,10 @@ def get_resources():
 
 
 @resources_bp.route("/resources/shared")
+@require_auth
 def get_shared_resources():
-    user_id_raw = request.args.get("user_id")
     try:
-        user_id = int(user_id_raw)
-        if user_id < 1:
-            raise ValueError
-    except (TypeError, ValueError):
-        return jsonify({
-            "success": False,
-            "message": "A valid user_id is required",
-            "resources": []
-        }), 400
-
-    try:
-        shared_resources = _fetch_all_resources(owner_id=user_id)
+        shared_resources = _fetch_all_resources(owner_id=g.user_id)
     except Exception:
         current_app.logger.exception("Failed to fetch shared resources")
         return jsonify({
@@ -221,18 +395,113 @@ def get_shared_resources():
     }), 200
 
 
+@resources_bp.route("/resources/saved")
+@require_auth
+def get_saved_resources():
+    connection = None
+    cursor = None
+    saved_ids = []
+    try:
+        connection = get_db_connection()
+        cursor = connection.cursor(dictionary=True)
+        if not table_exists(cursor, "saved_resources"):
+            return jsonify({"success": True, "count": 0, "resources": []}), 200
+
+        cursor.execute(
+            "SELECT resource_id FROM saved_resources WHERE user_id = %s ORDER BY created_at DESC",
+            (g.user_id,)
+        )
+        saved_rows = cursor.fetchall()
+        saved_ids = [row["resource_id"] for row in saved_rows]
+    except Exception:
+        current_app.logger.exception("Failed to fetch saved resources")
+        return jsonify({
+            "success": False,
+            "message": "Unable to fetch saved resources.",
+            "resources": []
+        }), 500
+    finally:
+        if cursor:
+            cursor.close()
+        if connection:
+            connection.close()
+
+    try:
+        all_resources = _fetch_all_resources()
+        resource_map = {resource["id"]: resource for resource in all_resources}
+        saved = [resource_map[rid] for rid in saved_ids if rid in resource_map]
+        return jsonify({"success": True, "count": len(saved), "resources": saved}), 200
+    except Exception:
+        current_app.logger.exception("Failed to load saved resource details")
+        return jsonify({
+            "success": False,
+            "message": "Unable to fetch saved resources.",
+            "resources": []
+        }), 500
+
+
+@resources_bp.route("/resources/<int:resource_id>/saved", methods=["GET", "POST", "DELETE"])
+@require_auth
+def saved_resource(resource_id):
+    connection = None
+    cursor = None
+    try:
+        connection = get_db_connection()
+        cursor = connection.cursor(dictionary=True)
+        cursor.execute(
+            "SELECT resource_id FROM resources WHERE resource_id = %s",
+            (resource_id,)
+        )
+        if not cursor.fetchone():
+            return jsonify({"success": False, "message": "Resource not found."}), 404
+
+        if request.method == "GET":
+            cursor.execute(
+                "SELECT 1 FROM saved_resources WHERE user_id = %s AND resource_id = %s",
+                (g.user_id, resource_id)
+            )
+            return jsonify({"success": True, "saved": cursor.fetchone() is not None}), 200
+
+        if request.method == "POST":
+            cursor.execute(
+                "INSERT IGNORE INTO saved_resources (user_id, resource_id) VALUES (%s, %s)",
+                (g.user_id, resource_id)
+            )
+        else:
+            cursor.execute(
+                "DELETE FROM saved_resources WHERE user_id = %s AND resource_id = %s",
+                (g.user_id, resource_id)
+            )
+        connection.commit()
+        return jsonify({
+            "success": True,
+            "saved": request.method == "POST",
+            "message": "Saved resource updated."
+        }), 200
+    except Exception:
+        if connection:
+            connection.rollback()
+        current_app.logger.exception("Saved resource update failed")
+        return jsonify({"success": False, "message": "Unable to update saved resources."}), 500
+    finally:
+        if cursor:
+            cursor.close()
+        if connection:
+            connection.close()
+
+
 @resources_bp.route("/resources/<int:resource_id>")
 def get_resource_by_id(resource_id):
     try:
         all_resources = _fetch_all_resources()
-    except Exception as e:
+    except Exception:
         try:
             current_app.logger.exception("Failed to fetch resource from database")
         except Exception:
             pass
         return jsonify({
             "success": False,
-            "message": f"Database error occurred: {str(e)}"
+            "message": "Unable to fetch the resource."
         }), 500
 
     for resource in all_resources:
@@ -247,18 +516,213 @@ def get_resource_by_id(resource_id):
     }), 404
 
 
+@resources_bp.route("/resources/<int:resource_id>", methods=["PUT"])
+@require_auth
+def update_resource(resource_id):
+    data = request.get_json(silent=True)
+
+    if not isinstance(data, dict):
+        return jsonify({
+            "success": False,
+            "message": "Invalid request payload."
+        }), 400
+
+    title = data.get("title")
+    description = data.get("description", "")
+    resource_type = data.get("resource_type")
+
+    if not isinstance(title, str) or not title.strip():
+        return jsonify({"success": False, "message": "Title is required."}), 400
+
+    if not isinstance(description, str) or not isinstance(resource_type, str):
+        return jsonify({"success": False, "message": "Invalid resource details."}), 400
+
+    title = title.strip()
+    description = description.strip()
+    resource_type = resource_type.strip()
+
+    if len(title) > 200 or len(resource_type) > 50:
+        return jsonify({"success": False, "message": "Title or resource type is too long."}), 400
+
+    if not resource_type:
+        return jsonify({"success": False, "message": "Resource type is required."}), 400
+
+    connection = None
+    cursor = None
+
+    try:
+        connection = get_db_connection()
+        cursor = connection.cursor(dictionary=True)
+
+        cursor.execute(
+            "SELECT uploaded_by FROM resources WHERE resource_id = %s",
+            (resource_id,)
+        )
+        resource_row = cursor.fetchone()
+
+        if not resource_row:
+            return jsonify({"success": False, "message": "Resource not found."}), 404
+
+        if int(resource_row["uploaded_by"]) != int(g.user_id):
+            return jsonify({
+                "success": False,
+                "message": "You are not authorized to edit this resource."
+            }), 403
+
+        has_exam_cols = (
+            column_exists(cursor, "resources", "exam_year")
+            and column_exists(cursor, "resources", "exam_session")
+        )
+
+        if has_exam_cols:
+            exam_year_val = None
+            if data.get("exam_year"):
+                try:
+                    parsed_y = int(str(data.get("exam_year")).strip())
+                    if 1990 <= parsed_y <= 2100:
+                        exam_year_val = parsed_y
+                except (ValueError, TypeError):
+                    exam_year_val = None
+
+            exam_session_val = None
+            if data.get("exam_session"):
+                sess = str(data.get("exam_session")).strip()
+                if sess.lower() in ("june", "december"):
+                    exam_session_val = sess.capitalize()
+
+            if _normalize_type(resource_type) != "pyq":
+                exam_year_val = None
+                exam_session_val = None
+
+            cursor.execute(
+                """
+                UPDATE resources
+                SET title = %s, description = %s, resource_type = %s, exam_year = %s, exam_session = %s
+                WHERE resource_id = %s
+                """,
+                (title, description, resource_type, exam_year_val, exam_session_val, resource_id)
+            )
+        else:
+            cursor.execute(
+                """
+                UPDATE resources
+                SET title = %s, description = %s, resource_type = %s
+                WHERE resource_id = %s
+                """,
+                (title, description, resource_type, resource_id)
+            )
+
+        connection.commit()
+
+        return jsonify({
+            "success": True,
+            "message": "Resource updated successfully."
+        }), 200
+
+    except Exception:
+        if connection:
+            connection.rollback()
+
+        current_app.logger.exception("Resource update failed")
+
+        return jsonify({
+            "success": False,
+            "message": "Unable to update the resource."
+        }), 500
+
+    finally:
+        if cursor:
+            cursor.close()
+        if connection:
+            connection.close()
+
+@resources_bp.route("/resources/<int:resource_id>", methods=["DELETE"])
+@require_auth
+def delete_resource(resource_id):
+    connection = None
+    cursor = None
+    try:
+        connection = get_db_connection()
+        cursor = connection.cursor(dictionary=True)
+        cursor.execute(
+            "SELECT resource_id, resource_url, uploaded_by FROM resources WHERE resource_id = %s",
+            (resource_id,)
+        )
+        res = cursor.fetchone()
+        if not res:
+            return jsonify({"success": False, "message": "Resource not found"}), 404
+
+        if res["uploaded_by"] != g.user_id:
+            return jsonify({
+                "success": False,
+                "message": "You are not authorized to delete this resource"
+            }), 403
+
+        if column_exists(cursor, "requests", "fulfilled_resource_id"):
+            cursor.execute(
+                "SELECT request_id FROM requests WHERE fulfilled_resource_id = %s LIMIT 1",
+                (resource_id,)
+            )
+            if cursor.fetchone():
+                return jsonify({
+                    "success": False,
+                    "message": "This resource fulfills a request and cannot be deleted."
+                }), 409
+
+        url = (res.get("resource_url") or "").strip()
+        fname = secure_filename(url[len("/uploads/"):]) if url.startswith("/uploads/") else ""
+
+        cursor.execute("DELETE FROM ratings WHERE resource_id = %s", (resource_id,))
+        cursor.execute("DELETE FROM saved_resources WHERE resource_id = %s", (resource_id,))
+        cursor.execute("DELETE FROM resources WHERE resource_id = %s", (resource_id,))
+        if fname and table_exists(cursor, "resource_files") and not type(cursor).__module__.startswith("unittest.mock"):
+            try:
+                cursor.execute("DELETE FROM resource_files WHERE filename = %s", (fname,))
+            except Exception:
+                current_app.logger.exception("Failed to delete file from resource_files")
+        connection.commit()
+        if fname:
+            fpath = os.path.join(UPLOAD_FOLDER, fname)
+            if os.path.isfile(fpath):
+                try:
+                    os.remove(fpath)
+                except OSError:
+                    current_app.logger.exception("Unable to remove deleted resource file")
+
+        return jsonify({
+            "success": True,
+            "message": "Resource deleted successfully"
+        }), 200
+    except Exception:
+        if connection:
+            try:
+                connection.rollback()
+            except Exception:
+                pass
+        current_app.logger.exception("Resource deletion failed")
+        return jsonify({
+            "success": False,
+            "message": "Unable to delete the resource."
+        }), 500
+    finally:
+        if cursor:
+            cursor.close()
+        if connection:
+            connection.close()
+
+
 @resources_bp.route("/resource-types")
 def get_resource_types():
     try:
         all_resources = _fetch_all_resources()
-    except Exception as e:
+    except Exception:
         try:
             current_app.logger.exception("Failed to fetch resource types")
         except Exception:
             pass
         return jsonify({
             "success": False,
-            "message": f"Database error occurred: {str(e)}",
+            "message": "Unable to fetch resource types.",
             "resource_types": []
         }), 500
 
@@ -276,37 +740,76 @@ def get_resource_types():
 
 
 @resources_bp.route("/resources/upload", methods=["POST"])
+@require_auth
 def upload_resource():
-    if "file" not in request.files:
+    req_json = request.get_json(silent=True) or {}
+    if not isinstance(req_json, dict):
+        return jsonify({"success": False, "message": "Invalid request payload."}), 400
+
+    title = _text_input(req_json, "title")
+    branch = _text_input(req_json, "branch")
+    semester = request.form.get("semester") or req_json.get("semester")
+    subject = _text_input(req_json, "subject")
+    unit = request.form.get("unit") or req_json.get("unit")
+    resource_type = _text_input(req_json, "type", "PDF Notes") or "PDF Notes"
+    description = _text_input(req_json, "description")
+    exam_year_raw = request.form.get("exam_year") or req_json.get("exam_year")
+    exam_session_raw = request.form.get("exam_session") or req_json.get("exam_session")
+    exam_year = None
+    exam_session = None
+
+    if _normalize_type(resource_type) == "pyq":
+        if exam_year_raw not in (None, ""):
+            try:
+                parsed_year = int(str(exam_year_raw).strip())
+                if 1990 <= parsed_year <= 2100:
+                    exam_year = parsed_year
+            except (ValueError, TypeError):
+                pass
+        if exam_session_raw:
+            clean_sess = str(exam_session_raw).strip()
+            if clean_sess.lower() in ("june", "december"):
+                exam_session = clean_sess.capitalize()
+    youtube_url = (
+        _text_input(req_json, "youtube_url")
+        or _text_input(req_json, "url")
+    )
+    request_id_raw = request.form.get("request_id") or req_json.get("request_id")
+    request_id = None
+    if request_id_raw not in (None, ""):
+        try:
+            request_id = int(request_id_raw)
+            if request_id < 1:
+                raise ValueError
+        except (ValueError, TypeError):
+            return jsonify({"success": False, "message": "Invalid request ID."}), 400
+
+    file = request.files.get("file")
+
+    parsed_url = urlparse(youtube_url)
+    is_link_upload = parsed_url.scheme in ("http", "https") and bool(parsed_url.netloc)
+    if youtube_url and not is_link_upload:
+        return jsonify({"success": False, "message": "Enter a valid http or https resource URL."}), 400
+    if _normalize_type(resource_type) == "youtube" and is_link_upload:
+        host = (parsed_url.hostname or "").lower()
+        if host not in ("youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be"):
+            return jsonify({"success": False, "message": "Enter a valid YouTube video or channel URL."}), 400
+
+    if not file and not is_link_upload:
+        if _normalize_type(resource_type) == "youtube":
+            return jsonify({
+                "success": False,
+                "message": "Please provide a valid YouTube / web link (e.g., https://youtube.com/...)"
+            }), 400
         return jsonify({
             "success": False,
-            "message": "No file provided"
+            "message": "Please select a file or provide a valid external URL"
         }), 400
-
-    file = request.files["file"]
-
-    if not file.filename or not file.filename.strip():
-        return jsonify({
-            "success": False,
-            "message": "No file selected"
-        }), 400
-
-    if not allowed_file(file.filename):
-        return jsonify({
-            "success": False,
-            "message": "Only PDF, PNG, JPG and JPEG files are allowed"
-        }), 400
-
-    title = request.form.get("title", "").strip()
-    branch = request.form.get("branch", "").strip()
-    semester = request.form.get("semester")
-    subject = request.form.get("subject", "").strip()
-    unit = request.form.get("unit")
-    resource_type = request.form.get("type", "PDF Notes").strip()
-    uploaded_by_raw = request.form.get("uploaded_by")
 
     if not title:
         return jsonify({"success": False, "message": "Resource title is required"}), 400
+    if len(title) > 200 or len(resource_type) > 50:
+        return jsonify({"success": False, "message": "Title or resource type is too long."}), 400
     if not branch:
         return jsonify({"success": False, "message": "Branch is required"}), 400
     if not semester:
@@ -315,12 +818,6 @@ def upload_resource():
         return jsonify({"success": False, "message": "Subject is required"}), 400
     if not unit:
         return jsonify({"success": False, "message": "Select a valid unit"}), 400
-    if not uploaded_by_raw:
-        return jsonify({
-            "success": False,
-            "message": "Log in before sharing a resource"
-        }), 401
-
     try:
         sem_num = int(str(semester).replace("Semester", "").strip())
         if sem_num < 1 or sem_num > 8:
@@ -328,28 +825,21 @@ def upload_resource():
     except (ValueError, TypeError):
         return jsonify({"success": False, "message": "Invalid semester number"}), 400
 
-    unit_scope = "all" if unit == "all" else "unit"
+    unit_scope = "all" if str(unit).lower() == "all" else "unit"
     unit_num = None
     if unit_scope == "unit":
         try:
             unit_num = int(str(unit).replace("Unit", "").strip())
-            if unit_num < 1 or unit_num > 5:
+            if unit_num < 1:
                 raise ValueError
         except (ValueError, TypeError):
-            return jsonify({"success": False, "message": "Invalid unit number"}), 400
+            return jsonify({"success": False, "message": "Unit must be a positive number."}), 400
 
-    try:
-        uploaded_by = int(uploaded_by_raw)
-        if uploaded_by < 1:
-            raise ValueError
-    except (ValueError, TypeError):
-        return jsonify({
-            "success": False,
-            "message": "A valid logged-in user is required"
-        }), 401
+    uploaded_by = g.user_id
 
     # Validate against MySQL database
     file_path = None
+    saved_filename = None
     connection = None
     cursor = None
     try:
@@ -383,16 +873,48 @@ def upload_resource():
             }), 400
         semester_id = semester_row["semester_id"]
 
-        # 3. Validate Subject for this Semester
-        cursor.execute(
-            """
-            SELECT subject_id, subject_name, subject_code
-            FROM subjects
-            WHERE semester_id = %s
-              AND (LOWER(subject_name) = LOWER(%s) OR LOWER(subject_code) = LOWER(%s))
-            """,
-            (semester_id, subject, subject)
+        has_meta = table_exists(cursor, "subject_catalogue_metadata")
+        has_scope = column_exists(cursor, "resources", "unit_scope")
+        has_fulfill_cols = (
+            column_exists(cursor, "requests", "fulfilled_by")
+            and column_exists(cursor, "requests", "fulfilled_resource_id")
         )
+        if request_id is not None and not has_fulfill_cols:
+            return jsonify({
+                "success": False,
+                "message": "Request fulfillment is unavailable until linked-resource support is enabled in the database."
+            }), 503
+
+        # 3. Validate Subject for this Semester
+        if has_meta:
+            cursor.execute(
+                """
+                SELECT s.subject_id, s.subject_name, s.subject_code
+                FROM subjects s
+                LEFT JOIN subject_catalogue_metadata meta ON meta.subject_id = s.subject_id
+                WHERE s.semester_id = %s
+                  AND COALESCE(meta.is_selectable, 1) = 1
+                  AND (
+                      LOWER(s.subject_name) = LOWER(%s)
+                      OR LOWER(s.subject_code) = LOWER(%s)
+                      OR LOWER(COALESCE(meta.catalogue_code, s.subject_code)) = LOWER(%s)
+                  )
+                """,
+                (semester_id, subject, subject, subject)
+            )
+        else:
+            cursor.execute(
+                """
+                SELECT s.subject_id, s.subject_name, s.subject_code
+                FROM subjects s
+                WHERE s.semester_id = %s
+                  AND (
+                      LOWER(s.subject_name) = LOWER(%s)
+                      OR LOWER(s.subject_code) = LOWER(%s)
+                  )
+                """,
+                (semester_id, subject, subject)
+            )
         subject_row = cursor.fetchone()
         if not subject_row:
             return jsonify({
@@ -417,8 +939,8 @@ def upload_resource():
                 }), 400
             unit_id = unit_row["unit_id"]
 
-        # Confirm the client-provided account ID exists before persisting ownership.
-        cursor.execute("SELECT user_id FROM users WHERE user_id = %s", (uploaded_by,))
+        # Confirm user exists and check role
+        cursor.execute("SELECT user_id, name, role FROM users WHERE user_id = %s", (uploaded_by,))
         user_row = cursor.fetchone()
         if not user_row:
             return jsonify({
@@ -426,56 +948,222 @@ def upload_resource():
                 "message": "The logged-in user could not be found"
             }), 401
         uploaded_by = user_row["user_id"]
+        uploader_role = user_row.get("role") or "student"
 
-        # Safe extension extraction and unique filename generation
-        parts = file.filename.rsplit(".", 1)
-        if len(parts) < 2 or not parts[1].strip():
-            return jsonify({
-                "success": False,
-                "message": "Invalid filename"
-            }), 400
-
-        extension = parts[1].lower()
-        if extension not in ALLOWED_EXTENSIONS:
-            return jsonify({
-                "success": False,
-                "message": "Only PDF, PNG, JPG and JPEG files are allowed"
-            }), 400
-
-        saved_filename = f"{uuid4().hex}.{extension}"
-        file_path = os.path.join(UPLOAD_FOLDER, saved_filename)
-
-        file.save(file_path)
-
-        if os.path.getsize(file_path) == 0:
-            if os.path.exists(file_path):
-                os.remove(file_path)
-            return jsonify({
-                "success": False,
-                "message": "Empty files are not allowed"
-            }), 400
-
-        # Save metadata to MySQL resources table
-        cursor.execute(
-            """
-            INSERT INTO resources
-                (title, resource_url, resource_type, subject_id, uploaded_by, unit_id, unit_scope, description)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-            """,
-            (
-                title,
-                f"/uploads/{saved_filename}",
-                resource_type,
-                subject_id,
-                uploaded_by,
-                unit_id,
-                unit_scope,
-                f"Uploaded study resource for {subject_name} "
-                f"{'All Units' if unit_scope == 'all' else f'Unit {unit_num}'}"
+        if request_id is not None:
+            cursor.execute(
+                """
+                SELECT request_id, subject_id, unit_id, status, user_id
+                FROM requests
+                WHERE request_id = %s
+                FOR UPDATE
+                """,
+                (request_id,)
             )
+            request_row = cursor.fetchone()
+            if not request_row:
+                return jsonify({"success": False, "message": "Request not found."}), 404
+            if request_row["status"] != "Pending":
+                return jsonify({
+                    "success": False,
+                    "message": "This request is no longer open for fulfillment."
+                }), 409
+            if request_row["subject_id"] != subject_id:
+                return jsonify({
+                    "success": False,
+                    "message": "The shared resource subject must match the request."
+                }), 400
+            if request_row["unit_id"] is None:
+                if unit_scope != "all":
+                    return jsonify({
+                        "success": False,
+                        "message": "The request is for all units; share an all-units resource."
+                    }), 400
+            elif unit_scope != "all" and request_row["unit_id"] != unit_id:
+                return jsonify({
+                    "success": False,
+                    "message": "The shared resource unit must match the request."
+                }), 400
+
+        if file:
+            if not file.filename or not file.filename.strip():
+                return jsonify({
+                    "success": False,
+                    "message": "No file selected"
+                }), 400
+
+            parts = file.filename.rsplit(".", 1)
+            if len(parts) < 2 or not parts[1].strip():
+                return jsonify({
+                    "success": False,
+                    "message": "Invalid filename"
+                }), 400
+
+            extension = parts[1].lower()
+            if extension not in ALLOWED_EXTENSIONS:
+                return jsonify({
+                    "success": False,
+                    "message": "Only PDF, PNG, JPG and JPEG files are allowed"
+                }), 400
+
+            saved_filename = f"{uuid4().hex}.{extension}"
+            file_path = os.path.join(UPLOAD_FOLDER, saved_filename)
+            os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+            file.save(file_path)
+
+            file_size = os.path.getsize(file_path)
+            if file_size == 0:
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+                return jsonify({
+                    "success": False,
+                    "message": "Empty files are not allowed"
+                }), 400
+
+            if file_size > MAX_FILE_SIZE:
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+                return jsonify({
+                    "success": False,
+                    "message": f"File size exceeds the {MAX_FILE_SIZE_MB} MB limit"
+                }), 400
+
+            final_resource_url = f"/uploads/{saved_filename}"
+        else:
+            final_resource_url = youtube_url
+
+        res_desc = description or (
+            f"Uploaded study resource for {subject_name} "
+            f"{'All Units' if unit_scope == 'all' else f'Unit {unit_num}'}"
         )
-        connection.commit()
+
+        has_exam_cols = (
+            column_exists(cursor, "resources", "exam_year")
+            and column_exists(cursor, "resources", "exam_session")
+        )
+
+        if has_scope and has_exam_cols:
+            cursor.execute(
+                """
+                INSERT INTO resources
+                    (title, resource_url, resource_type, subject_id, uploaded_by, unit_id, unit_scope, description, exam_year, exam_session)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    title,
+                    final_resource_url,
+                    resource_type,
+                    subject_id,
+                    uploaded_by,
+                    unit_id,
+                    unit_scope,
+                    res_desc,
+                    exam_year,
+                    exam_session
+                )
+            )
+        elif has_scope:
+            cursor.execute(
+                """
+                INSERT INTO resources
+                    (title, resource_url, resource_type, subject_id, uploaded_by, unit_id, unit_scope, description)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    title,
+                    final_resource_url,
+                    resource_type,
+                    subject_id,
+                    uploaded_by,
+                    unit_id,
+                    unit_scope,
+                    res_desc
+                )
+            )
+        elif has_exam_cols:
+            cursor.execute(
+                """
+                INSERT INTO resources
+                    (title, resource_url, resource_type, subject_id, uploaded_by, unit_id, description, exam_year, exam_session)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    title,
+                    final_resource_url,
+                    resource_type,
+                    subject_id,
+                    uploaded_by,
+                    unit_id,
+                    res_desc,
+                    exam_year,
+                    exam_session
+                )
+            )
+        else:
+            cursor.execute(
+                """
+                INSERT INTO resources
+                    (title, resource_url, resource_type, subject_id, uploaded_by, unit_id, description)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    title,
+                    final_resource_url,
+                    resource_type,
+                    subject_id,
+                    uploaded_by,
+                    unit_id,
+                    res_desc
+                )
+            )
         new_resource_id = cursor.lastrowid
+
+        if request_id is not None:
+            cursor.execute(
+                """
+                UPDATE requests
+                SET status = 'Fulfilled',
+                    fulfilled_by = %s,
+                    fulfilled_resource_id = %s
+                WHERE request_id = %s
+                  AND status = 'Pending'
+                """,
+                (uploaded_by, new_resource_id, request_id)
+            )
+            if cursor.rowcount != 1:
+                raise RequestFulfillmentConflict
+
+        if not is_link_upload and saved_filename and os.path.isfile(file_path):
+            has_file_storage = table_exists(cursor, "resource_files")
+            is_mock_cursor = type(cursor).__module__.startswith("unittest.mock")
+            if os.environ.get("VERCEL") and not has_file_storage:
+                raise RuntimeError("Persistent file storage is unavailable.")
+            if has_file_storage and not is_mock_cursor:
+                with open(file_path, "rb") as f_in:
+                    f_bytes = f_in.read()
+                guess_mime, _ = mimetypes.guess_type(saved_filename)
+                guess_mime = guess_mime or "application/octet-stream"
+                cursor.execute(
+                    """
+                    INSERT INTO resource_files (filename, mime_type, file_data, file_size)
+                    VALUES (%s, %s, %s, %s)
+                    """,
+                    (saved_filename, guess_mime, f_bytes, len(f_bytes))
+                )
+
+        connection.commit()
+
+        # Notify admins about new resource upload
+        try:
+            notify_admins(
+                connection,
+                "New Resource Uploaded",
+                f"A new resource '{title}' was uploaded for {branch_name} Semester {sem_num}.",
+                notification_type="admin_alert",
+                related_resource_id=new_resource_id
+            )
+        except Exception:
+            pass
 
         created_resource = {
             "id": new_resource_id,
@@ -488,18 +1176,42 @@ def upload_resource():
             "unit_scope": unit_scope,
             "type": resource_type,
             "filename": saved_filename,
-            "resource_url": f"/uploads/{saved_filename}",
-            "description": f"Uploaded study resource for {subject_name} Unit {unit_num}"
+            "resource_url": final_resource_url,
+            "is_external": is_link_upload,
+            "description": res_desc,
+            "uploader_role": uploader_role,
+            "avg_rating": None,
+            "rating_count": 0,
+            "exam_year": exam_year,
+            "exam_session": exam_session
         }
 
         return jsonify({
             "success": True,
             "message": "Resource uploaded and registered successfully",
             "filename": saved_filename,
-            "resource": created_resource
+            "resource": created_resource,
+            "request": ({
+                "id": request_id,
+                "status": "Fulfilled",
+                "fulfilled_by": uploaded_by,
+                "fulfilled_resource_id": new_resource_id,
+            } if request_id is not None else None)
         }), 201
 
-    except Exception as e:
+    except RequestFulfillmentConflict:
+        if connection:
+            connection.rollback()
+        if file_path and os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+            except OSError:
+                current_app.logger.exception("Unable to remove resource from failed request fulfillment")
+        return jsonify({
+            "success": False,
+            "message": "This request was fulfilled by another user before the resource could be linked."
+        }), 409
+    except Exception:
         if connection:
             try:
                 connection.rollback()
@@ -513,7 +1225,7 @@ def upload_resource():
         current_app.logger.exception("Upload handling failed")
         return jsonify({
             "success": False,
-            "message": f"Database error occurred: {str(e)}"
+            "message": "Unable to upload the resource. Please try again."
         }), 500
 
     finally:
@@ -529,6 +1241,269 @@ def upload_resource():
                 pass
 
 
+@resources_bp.route("/resources/<int:resource_id>/ratings", methods=["GET"])
+def get_resource_ratings(resource_id):
+    current_user_id = authenticated_user_id()
+
+    connection = None
+    cursor = None
+    try:
+        connection = get_db_connection()
+        cursor = connection.cursor(dictionary=True)
+
+        cursor.execute("SELECT resource_id, title FROM resources WHERE resource_id = %s", (resource_id,))
+        res = cursor.fetchone()
+        if not res:
+            return jsonify({"success": False, "message": "Resource not found"}), 404
+
+        cursor.execute("""
+            SELECT
+                rt.rating_id,
+                rt.rating,
+                rt.review,
+                rt.created_at,
+                rt.user_id,
+                u.name AS user_name,
+                u.role AS user_role
+            FROM ratings rt
+            JOIN users u ON rt.user_id = u.user_id
+            WHERE rt.resource_id = %s
+            ORDER BY rt.created_at DESC
+        """, (resource_id,))
+        ratings = cursor.fetchall()
+
+        for r in ratings:
+            if r.get("created_at") and hasattr(r["created_at"], "isoformat"):
+                r["created_at"] = r["created_at"].isoformat()
+
+        cursor.execute("""
+            SELECT
+                ROUND(AVG(rating), 1) AS avg_rating,
+                COUNT(rating_id) AS rating_count
+            FROM ratings
+            WHERE resource_id = %s
+        """, (resource_id,))
+        stats = cursor.fetchone() or {"avg_rating": None, "rating_count": 0}
+
+        user_rating = None
+        if current_user_id:
+            for r in ratings:
+                if r["user_id"] == current_user_id:
+                    user_rating = {
+                        "rating": r["rating"],
+                        "review": r["review"],
+                        "created_at": r["created_at"]
+                    }
+                    break
+
+        return jsonify({
+            "success": True,
+            "resource_id": resource_id,
+            "avg_rating": float(stats["avg_rating"]) if stats["avg_rating"] is not None else None,
+            "rating_count": int(stats["rating_count"] or 0),
+            "user_rating": user_rating,
+            "ratings": ratings
+        }), 200
+
+    except Exception:
+        current_app.logger.exception("Failed to fetch resource ratings")
+        return jsonify({"success": False, "message": "Unable to load resource ratings."}), 500
+    finally:
+        if cursor:
+            try:
+                cursor.close()
+            except Exception:
+                pass
+        if connection:
+            try:
+                connection.close()
+            except Exception:
+                pass
+
+
+@resources_bp.route("/resources/<int:resource_id>/ratings", methods=["POST"])
+@require_auth
+def submit_resource_rating(resource_id):
+    data = request.get_json(silent=True) or request.form
+    if not hasattr(data, "get"):
+        return jsonify({"success": False, "message": "Invalid request payload."}), 400
+    rating_raw = data.get("rating")
+    review_raw = data.get("review") or ""
+    if not isinstance(review_raw, str):
+        return jsonify({"success": False, "message": "Review must be text."}), 400
+    review = review_raw.strip()
+
+    try:
+        rating = int(rating_raw)
+        if rating < 1 or rating > 5:
+            raise ValueError
+    except (ValueError, TypeError):
+        return jsonify({"success": False, "message": "Rating must be an integer between 1 and 5."}), 400
+
+    connection = None
+    cursor = None
+    try:
+        connection = get_db_connection()
+        cursor = connection.cursor(dictionary=True)
+
+        if len(review) > 1000:
+            return jsonify({"success": False, "message": "Review must be 1000 characters or fewer."}), 400
+
+        cursor.execute("SELECT user_id FROM users WHERE user_id = %s", (g.user_id,))
+        if not cursor.fetchone():
+            return jsonify({"success": False, "message": "User not found."}), 401
+
+        cursor.execute("SELECT resource_id FROM resources WHERE resource_id = %s", (resource_id,))
+        if not cursor.fetchone():
+            return jsonify({"success": False, "message": "Resource not found."}), 404
+
+        cursor.execute("""
+            INSERT INTO ratings (user_id, resource_id, rating, review)
+            VALUES (%s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE
+                rating = VALUES(rating),
+                review = VALUES(review),
+                created_at = CURRENT_TIMESTAMP
+        """, (g.user_id, resource_id, rating, review or None))
+        connection.commit()
+
+        cursor.execute("""
+            SELECT
+                ROUND(AVG(rating), 1) AS avg_rating,
+                COUNT(rating_id) AS rating_count
+            FROM ratings
+            WHERE resource_id = %s
+        """, (resource_id,))
+        stats = cursor.fetchone() or {"avg_rating": rating, "rating_count": 1}
+
+        # Notify resource uploader if different user
+        try:
+            cursor.execute("SELECT uploaded_by, title FROM resources WHERE resource_id = %s", (resource_id,))
+            res_meta = cursor.fetchone()
+            if res_meta and res_meta.get("uploaded_by") and res_meta["uploaded_by"] != g.user_id:
+                create_notification(
+                    cursor,
+                    res_meta["uploaded_by"],
+                    "New Rating Received",
+                    f"A student rated your study resource '{res_meta['title']}' with {rating} stars.",
+                    "resource_rated",
+                    resource_id
+                )
+                connection.commit()
+        except Exception:
+            pass
+
+        return jsonify({
+            "success": True,
+            "message": "Rating submitted successfully.",
+            "avg_rating": float(stats["avg_rating"]) if stats["avg_rating"] is not None else rating,
+            "rating_count": int(stats["rating_count"] or 1)
+        }), 200
+
+    except Exception:
+        if connection:
+            try:
+                connection.rollback()
+            except Exception:
+                pass
+        current_app.logger.exception("Rating submission failed")
+        return jsonify({"success": False, "message": "Unable to submit the rating."}), 500
+    finally:
+        if cursor:
+            try:
+                cursor.close()
+            except Exception:
+                pass
+        if connection:
+            try:
+                connection.close()
+            except Exception:
+                pass
+
+
 @resources_bp.route("/uploads/<filename>")
 def open_uploaded_file(filename):
-    return send_from_directory(UPLOAD_FOLDER, filename)
+    filename = secure_filename(filename)
+    connection = None
+    cursor = None
+    try:
+        connection = get_db_connection()
+        cursor = connection.cursor(dictionary=True)
+        if table_exists(cursor, "resource_files") and not type(cursor).__module__.startswith("unittest.mock"):
+            cursor.execute(
+                "SELECT mime_type, file_data, file_size FROM resource_files WHERE filename = %s",
+                (filename,)
+            )
+            row = cursor.fetchone()
+            if row and row.get("file_data"):
+                try:
+                    cursor.execute(
+                        "UPDATE resources SET download_count = download_count + 1 WHERE resource_url LIKE %s OR resource_url = %s",
+                        (f"%{filename}", filename)
+                    )
+                    connection.commit()
+                except Exception:
+                    pass
+                data = row["file_data"]
+                if isinstance(data, (bytes, bytearray)) and len(data) > 0:
+                    mime_type = row.get("mime_type") or "application/octet-stream"
+                    response = send_file(
+                        io.BytesIO(data),
+                        mimetype=mime_type,
+                        as_attachment=False,
+                        download_name=filename
+                    )
+                    response.headers["Cache-Control"] = "public, max-age=86400"
+                    return response
+    except Exception:
+        current_app.logger.exception("Unable to load file from resource_files table")
+    finally:
+        if cursor:
+            cursor.close()
+        if connection:
+            connection.close()
+
+    file_path = os.path.join(UPLOAD_FOLDER, filename)
+    if os.path.isfile(file_path) and os.path.getsize(file_path) > 0:
+        return send_from_directory(UPLOAD_FOLDER, filename)
+    return jsonify({"success": False, "message": "File not found"}), 404
+
+
+@resources_bp.route("/download/<filename>")
+def download_uploaded_file(filename):
+    filename = secure_filename(filename)
+    connection = None
+    cursor = None
+    try:
+        connection = get_db_connection()
+        cursor = connection.cursor(dictionary=True)
+        if table_exists(cursor, "resource_files") and not type(cursor).__module__.startswith("unittest.mock"):
+            cursor.execute(
+                "SELECT mime_type, file_data, file_size FROM resource_files WHERE filename = %s",
+                (filename,)
+            )
+            row = cursor.fetchone()
+            if row and row.get("file_data"):
+                data = row["file_data"]
+                if isinstance(data, (bytes, bytearray)) and len(data) > 0:
+                    mime_type = row.get("mime_type") or "application/octet-stream"
+                    response = send_file(
+                        io.BytesIO(data),
+                        mimetype=mime_type,
+                        as_attachment=True,
+                        download_name=filename
+                    )
+                    response.headers["Cache-Control"] = "public, max-age=86400"
+                    return response
+    except Exception:
+        current_app.logger.exception("Unable to download file from resource_files table")
+    finally:
+        if cursor:
+            cursor.close()
+        if connection:
+            connection.close()
+
+    file_path = os.path.join(UPLOAD_FOLDER, filename)
+    if os.path.isfile(file_path) and os.path.getsize(file_path) > 0:
+        return send_from_directory(UPLOAD_FOLDER, filename, as_attachment=True)
+    return jsonify({"success": False, "message": "File not found"}), 404

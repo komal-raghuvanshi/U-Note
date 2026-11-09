@@ -10,7 +10,10 @@ function Footer({ onNavigate }) {
         <div className="footer-grid">
           {/* Left: Brand */}
           <div className="footer-brand">
-            <span className="footer-logo">U-NOTE</span>
+            <div className="footer-logo-wrapper">
+              <img src="/favicon.png" alt="U-NOTE Logo" className="footer-logo-icon" />
+              <span className="footer-logo">U-NOTE</span>
+            </div>
             <p className="footer-tagline">RGPV Notes &amp; Study Resources Platform</p>
           </div>
 
@@ -25,6 +28,11 @@ function Footer({ onNavigate }) {
               <li>
                 <a href="/resources" className="footer-nav-link" onClick={(e) => handleNav(e, '/resources')}>
                   Resources
+                </a>
+              </li>
+              <li>
+                <a href="/requests" className="footer-nav-link" onClick={(e) => handleNav(e, '/requests')}>
+                  Requests
                 </a>
               </li>
               <li>

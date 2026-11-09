@@ -1,106 +1,205 @@
 import { useState, useEffect } from 'react'
+import { apiFetch } from '../api'
+import { useAcademicOptions } from '../hooks/useAcademicOptions'
 
-function ShareResource({ onBack, user }) {
+const MAX_RESOURCE_FILE_SIZE = import.meta.env.PROD
+  ? 4 * 1024 * 1024
+  : 25 * 1024 * 1024
+const MAX_RESOURCE_FILE_SIZE_MB = MAX_RESOURCE_FILE_SIZE / (1024 * 1024)
+
+function ShareResource({ onBack, onNavigate, user, requestId }) {
   const [submitted, setSubmitted] = useState(false)
   const [file, setFile] = useState(null)
   const [error, setError] = useState('')
   const [uploading, setUploading] = useState(false)
+  const [linkedRequest, setLinkedRequest] = useState(null)
+  const [loadingRequest, setLoadingRequest] = useState(Boolean(requestId))
 
   const [formData, setFormData] = useState({
     title: '',
+    description: '',
     branch: '',
     semester: '',
     subject: '',
     unit: '',
-    type: ''
+    type: '',
+    exam_year: '',
+    exam_session: ''
   })
 
-  const [subjectOptions, setSubjectOptions] = useState([])
-  const [subjectsLoading, setSubjectsLoading] = useState(false)
+  const [unitOptions, setUnitOptions] = useState([])
+  const [unitsLoading, setUnitsLoading] = useState(false)
+  const {
+    branches: branchOptions,
+    semesters,
+    subjects: subjectOptions,
+    subjectsLoading,
+    branchesLoading,
+    semestersLoading,
+  } = useAcademicOptions(formData.branch, formData.semester)
+  const isYouTubeResource = formData.type.toLowerCase().includes('youtube')
+  const isPYQResource =
+    formData.type.toLowerCase().includes('previous year') ||
+    formData.type.toLowerCase().includes('pyq')
 
-  // Fetch subjects when branch or semester changes
   useEffect(() => {
     let ignore = false
 
-    async function fetchSubjects() {
-      setSubjectsLoading(true)
-      setSubjectOptions([])
+    async function loadRequest() {
+      if (!requestId) {
+        setLinkedRequest(null)
+        setLoadingRequest(false)
+        return
+      }
+      if (!user?.token) {
+        setLoadingRequest(false)
+        setError('Log in to share a resource for this request.')
+        return
+      }
 
+      setLoadingRequest(true)
+      try {
+        const response = await apiFetch(`/requests/${requestId}`, {}, user.token)
+        const data = await response.json()
+        if (!response.ok || !data.success) {
+          throw new Error(data.message || 'Unable to load this resource request.')
+        }
+        if (!ignore) {
+          const currentRequest = data.request
+          setLinkedRequest(currentRequest)
+          setFormData((previous) => ({
+            ...previous,
+            title: `Resource for ${currentRequest.subject}`,
+            description: currentRequest.description,
+            branch: currentRequest.branch,
+            semester: String(currentRequest.semester_num),
+            subject: currentRequest.subject,
+            unit: currentRequest.unit ? String(currentRequest.unit) : 'all',
+          }))
+        }
+      } catch (loadError) {
+        if (!ignore) setError(loadError.message || 'Unable to load this resource request.')
+      } finally {
+        if (!ignore) setLoadingRequest(false)
+      }
+    }
+
+    loadRequest()
+    return () => { ignore = true }
+  }, [requestId, user?.token])
+
+  // Fetch units when subject changes
+  useEffect(() => {
+    let ignore = false
+
+    async function fetchUnits() {
+      if (!formData.subject) {
+        setUnitOptions([])
+        return
+      }
+
+      setUnitsLoading(true)
       const params = new URLSearchParams()
+      params.append('subject', formData.subject)
       if (formData.branch) params.append('branch', formData.branch)
       if (formData.semester) params.append('semester', formData.semester)
 
       try {
-        const res = await fetch(`http://127.0.0.1:5000/subjects?${params.toString()}`)
+        const res = await apiFetch(`/units?${params.toString()}`)
         if (!res.ok) throw new Error('failed')
         const data = await res.json()
         if (!ignore) {
-          setSubjectOptions(Array.isArray(data) ? data : [])
-          setSubjectsLoading(false)
+          setUnitOptions(Array.isArray(data) ? data : [])
+          setUnitsLoading(false)
         }
       } catch {
         if (!ignore) {
-          setSubjectOptions([])
-          setSubjectsLoading(false)
+          setUnitOptions([])
+          setUnitsLoading(false)
         }
       }
     }
 
-    if (formData.branch && formData.semester) {
-      fetchSubjects()
-    } else {
-      setSubjectOptions([])
-      setSubjectsLoading(false)
-    }
-
+    fetchUnits()
     return () => { ignore = true }
-  }, [formData.branch, formData.semester])
+  }, [formData.subject, formData.branch, formData.semester])
 
   const handleChange = (e) => {
     const { name, value } = e.target
+    const isNowPYQ = name === 'type' && (value.toLowerCase().includes('previous year') || value.toLowerCase().includes('pyq'))
     setFormData((prev) => ({
       ...prev,
       [name]: value,
-      ...(name === 'branch' || name === 'semester'
-        ? { subject: '', unit: '' }
+      ...(name === 'type' && !isNowPYQ ? { exam_year: '', exam_session: '' } : {}),
+      ...(name === 'branch'
+        ? { semester: '', subject: '', unit: '' }
+        : name === 'semester'
+          ? { subject: '', unit: '' }
         : name === 'subject'
           ? { unit: '' }
           : {})
     }))
   }
 
+  const handleFileChange = (event) => {
+    const selectedFile = event.target.files[0] || null
+    if (selectedFile && selectedFile.size > MAX_RESOURCE_FILE_SIZE) {
+      setFile(null)
+      setError(`Choose a file no larger than ${MAX_RESOURCE_FILE_SIZE_MB} MB.`)
+      event.target.value = ''
+      return
+    }
+
+    setFile(selectedFile)
+    setError('')
+  }
+
   const handleSubmit = async (event) => {
     event.preventDefault()
     setError('')
 
-    if (!file) {
-      setError('Please select a file.')
+    if (!user?.id || !user?.token) {
+      setError('Please log in before sharing a study resource.')
       return
     }
-    if (!user?.id) {
-      setError('Please log in before sharing a resource.')
+
+    if (requestId && (!linkedRequest || linkedRequest.status !== 'Pending')) {
+      setError('This request is not available for fulfillment.')
+      return
+    }
+
+    const youtubeUrl = event.currentTarget.elements.youtube_url?.value.trim() || ''
+    if (!file && !youtubeUrl) {
+      setError('Add a valid YouTube URL or choose a file to upload.')
       return
     }
 
     const data = new FormData()
-    data.append('file', file)
+    if (file) data.append('file', file)
     data.append('title', formData.title)
+    data.append('description', formData.description)
     data.append('branch', formData.branch)
     data.append('semester', formData.semester)
     data.append('subject', formData.subject)
     data.append('unit', formData.unit)
     data.append('type', formData.type)
-    data.append('uploaded_by', user.id)
+    if (isPYQResource) {
+      if (formData.exam_year) data.append('exam_year', formData.exam_year)
+      if (formData.exam_session) data.append('exam_session', formData.exam_session)
+    }
+    if (requestId) data.append('request_id', requestId)
+    if (youtubeUrl) data.append('youtube_url', youtubeUrl)
 
     try {
       setUploading(true)
 
-      const response = await fetch(
-        'http://127.0.0.1:5000/resources/upload',
+      const response = await apiFetch(
+        '/resources/upload',
         {
           method: 'POST',
           body: data
-        }
+        },
+        user.token
       )
 
       const result = await response.json()
@@ -139,6 +238,50 @@ function ShareResource({ onBack, user }) {
             </p>
           </div>
 
+          {!user && (
+            <div className="prototype-badge-box auth-notice-box" style={{ backgroundColor: '#eff6ff', borderColor: '#bfdbfe', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
+              <div>
+                <span className="prototype-badge-pill" style={{ backgroundColor: '#1d4ed8' }}>Login Required</span>
+                <p className="prototype-badge-text" style={{ color: '#1e40af', marginTop: '0.35rem' }}>
+                  You must be logged in to upload and share study resources.
+                </p>
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  style={{ padding: '0.45rem 1rem', fontSize: '0.875rem' }}
+                  onClick={() => onNavigate ? onNavigate('/login') : (window.location.href = '/login')}
+                >
+                  Log In
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-outline"
+                  style={{ padding: '0.45rem 1rem', fontSize: '0.875rem' }}
+                  onClick={() => onNavigate ? onNavigate('/signup') : (window.location.href = '/signup')}
+                >
+                  Sign Up
+                </button>
+              </div>
+            </div>
+          )}
+
+          {requestId && (
+            <div className="prototype-badge-box" style={{ backgroundColor: '#eff6ff', borderColor: '#bfdbfe' }}>
+              <span className="prototype-badge-pill" style={{ backgroundColor: '#1d4ed8' }}>
+                {loadingRequest ? 'Loading Request' : linkedRequest?.status || 'Request'}
+              </span>
+              <p className="prototype-badge-text" style={{ color: '#1e40af' }}>
+                {loadingRequest
+                  ? 'Loading the request details to pre-fill the sharing form.'
+                  : linkedRequest
+                    ? `Sharing a resource for ${linkedRequest.subject} (${linkedRequest.branch}, Semester ${linkedRequest.semester_num}).`
+                    : 'Request details could not be loaded.'}
+              </p>
+            </div>
+          )}
+
           {submitted ? (
             <div className="submission-success-card">
               <h3>File Uploaded Successfully!</h3>
@@ -149,8 +292,13 @@ function ShareResource({ onBack, user }) {
               </p>
 
               <p className="success-note">
-                Your file and resource details have been successfully uploaded and saved to the database.
-                You can now view this resource on the Resources page.
+                {requestId
+                  ? 'Your resource has been saved and linked to the request, which is now marked Fulfilled.'
+                  : file
+                    ? 'Your file and resource details have been successfully uploaded and saved to the database.'
+                    : 'Your YouTube resource details have been saved to the database.'}
+                {' '}
+                You can now view this resource on the Resources page or under My Shared Resources in your profile.
               </p>
 
               <div className="success-actions">
@@ -159,28 +307,31 @@ function ShareResource({ onBack, user }) {
                   className="btn btn-primary"
                   onClick={onBack}
                 >
-                  Return to Home
+                  {requestId ? 'Return to Requests' : 'Return to Home'}
                 </button>
 
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  onClick={() => {
-                    setSubmitted(false)
-                    setFile(null)
-                    setError('')
-                    setFormData({
-                      title: '',
-                      branch: '',
-                      semester: '',
-                      subject: '',
-                      unit: '',
-                      type: ''
-                    })
-                  }}
-                >
-                  Share Another
-                </button>
+                {!requestId && (
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => {
+                      setSubmitted(false)
+                      setFile(null)
+                      setError('')
+                      setFormData({
+                        title: '',
+                        description: '',
+                        branch: '',
+                        semester: '',
+                        subject: '',
+                        unit: '',
+                        type: ''
+                      })
+                    }}
+                  >
+                    Share Another
+                  </button>
+                )}
               </div>
             </div>
           ) : (
@@ -189,7 +340,7 @@ function ShareResource({ onBack, user }) {
               onSubmit={handleSubmit}
             >
               <div className="form-group">
-                <label htmlFor="title">Resource Title</label>
+                <label htmlFor="title">Resource Title *</label>
                 <input
                   type="text"
                   id="title"
@@ -204,7 +355,7 @@ function ShareResource({ onBack, user }) {
 
               <div className="form-row">
                 <div className="form-group">
-                  <label htmlFor="branch">Branch</label>
+                  <label htmlFor="branch">Branch *</label>
                   <select
                     id="branch"
                     name="branch"
@@ -212,19 +363,19 @@ function ShareResource({ onBack, user }) {
                     value={formData.branch}
                     onChange={handleChange}
                     required
+                    disabled={Boolean(requestId)}
                   >
-                    <option value="" disabled>Select branch</option>
-                    <option value="AIML">AIML</option>
-                    <option value="CSE">CSE</option>
-                    <option value="IT">IT</option>
-                    <option value="EC">EC</option>
-                    <option value="ME">ME</option>
-                    <option value="Civil">Civil</option>
+                    <option value="" disabled>
+                      {branchesLoading ? 'Loading branches...' : 'Select branch'}
+                    </option>
+                    {branchOptions.map((branch) => (
+                      <option key={branch.id} value={branch.name}>{branch.name}</option>
+                    ))}
                   </select>
                 </div>
 
                 <div className="form-group">
-                  <label htmlFor="semester">Semester</label>
+                  <label htmlFor="semester">Semester *</label>
                   <select
                     id="semester"
                     name="semester"
@@ -232,11 +383,18 @@ function ShareResource({ onBack, user }) {
                     value={formData.semester}
                     onChange={handleChange}
                     required
+                    disabled={Boolean(requestId) || !formData.branch || branchesLoading || semestersLoading}
                   >
-                    <option value="" disabled>Select semester</option>
-                    {[1, 2, 3, 4, 5, 6, 7, 8].map((sem) => (
-                      <option key={sem} value={sem}>
-                        Semester {sem}
+                    <option value="" disabled>
+                      {!formData.branch
+                        ? 'Select branch first'
+                        : semestersLoading
+                          ? 'Loading semesters...'
+                          : 'Select semester'}
+                    </option>
+                    {semesters.map((sem) => (
+                      <option key={sem.id} value={sem.number}>
+                        {sem.name}
                       </option>
                     ))}
                   </select>
@@ -245,7 +403,7 @@ function ShareResource({ onBack, user }) {
 
               <div className="form-row">
                 <div className="form-group">
-                  <label htmlFor="subject">Subject Name</label>
+                  <label htmlFor="subject">Subject Name *</label>
                   <select
                     id="subject"
                     name="subject"
@@ -253,7 +411,7 @@ function ShareResource({ onBack, user }) {
                     value={formData.subject}
                     onChange={handleChange}
                     required
-                    disabled={subjectsLoading || subjectOptions.length === 0}
+                    disabled={Boolean(requestId) || !formData.branch || !formData.semester || subjectsLoading || subjectOptions.length === 0}
                   >
                     <option value="">
                       {subjectsLoading
@@ -269,7 +427,7 @@ function ShareResource({ onBack, user }) {
                 </div>
 
                 <div className="form-group">
-                  <label htmlFor="unit">Unit</label>
+                  <label htmlFor="unit">Unit *</label>
                   <select
                     id="unit"
                     name="unit"
@@ -277,20 +435,27 @@ function ShareResource({ onBack, user }) {
                     value={formData.unit}
                     onChange={handleChange}
                     required
+                    disabled={Boolean(requestId) || unitsLoading || !formData.subject}
                   >
-                    <option value="" disabled>Select unit</option>
-                    <option value="all">All Units</option>
-                    {[1, 2, 3, 4, 5].map((u) => (
-                      <option key={u} value={u}>
-                        Unit {u}
-                      </option>
-                    ))}
+                    <option value="" disabled>
+                      {!formData.subject ? 'Select subject first' : unitsLoading ? 'Loading units...' : 'Select unit'}
+                    </option>
+                    <option value="all">All Units (Complete Subject Material)</option>
+                    {unitOptions.length > 0 ? (
+                      unitOptions.map((u) => (
+                        <option key={u.id || u.unit_number} value={u.unit_number}>
+                          Unit {u.unit_number}
+                        </option>
+                      ))
+                    ) : (
+                      null
+                    )}
                   </select>
                 </div>
               </div>
 
               <div className="form-group">
-                <label htmlFor="type">Resource Type</label>
+                <label htmlFor="type">Resource Type *</label>
                 <select
                   id="type"
                   name="type"
@@ -303,28 +468,99 @@ function ShareResource({ onBack, user }) {
                   <option value="Handwritten Notes">Handwritten Notes</option>
                   <option value="PDF Notes">PDF Notes</option>
                   <option value="Class Notes">Class Notes</option>
-                  <option value="Previous Year Papers">Previous Year Papers</option>
+                  <option value="Previous Year Question Papers">Previous Year Question Papers</option>
                   <option value="Important Questions">Important Questions</option>
-                  <option value="YouTube Lectures">YouTube Lectures</option>
+                  <option value="YouTube Resources">YouTube Resources</option>
                   <option value="Teacher Resources">Teacher Resources</option>
                 </select>
               </div>
 
+              {isPYQResource && (
+                <div className="form-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '1rem' }}>
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label htmlFor="exam_year">Exam Year *</label>
+                    <select
+                      id="exam_year"
+                      name="exam_year"
+                      className="form-control"
+                      value={formData.exam_year}
+                      onChange={handleChange}
+                      required={isPYQResource}
+                    >
+                      <option value="">Select Exam Year</option>
+                      {[2026, 2025, 2024, 2023, 2022, 2021, 2020, 2019, 2018, 2017, 2016, 2015].map((yr) => (
+                        <option key={yr} value={yr}>{yr}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label htmlFor="exam_session">Exam Session *</label>
+                    <select
+                      id="exam_session"
+                      name="exam_session"
+                      className="form-control"
+                      value={formData.exam_session}
+                      onChange={handleChange}
+                      required={isPYQResource}
+                    >
+                      <option value="">Select Exam Session</option>
+                      <option value="June">June (Even Semesters)</option>
+                      <option value="December">December (Odd Semesters)</option>
+                    </select>
+                  </div>
+                </div>
+              )}
+
               <div className="form-group">
-                <label htmlFor="file">Select File (PDF, PNG, JPG, JPEG)</label>
+                <label htmlFor="description">Description (Optional)</label>
+                <textarea
+                  id="description"
+                  name="description"
+                  className="form-control"
+                  rows="3"
+                  placeholder="Add details about topics covered, author, or exam tips..."
+                  value={formData.description}
+                  onChange={handleChange}
+                ></textarea>
+              </div>
+
+              {isYouTubeResource && (
+                <div className="form-group">
+                  <label htmlFor="youtube_url">YouTube URL *</label>
+                  <input
+                    type="url"
+                    id="youtube_url"
+                    name="youtube_url"
+                    className="form-control"
+                    placeholder="https://www.youtube.com/watch?v=..."
+                    pattern="https?://.+"
+                    required={!file}
+                  />
+                </div>
+              )}
+
+              <div className="form-group">
+                <label htmlFor="file">
+                  {isYouTubeResource ? 'Or select a file (PDF, PNG, JPG, JPEG)' : 'Select File (PDF, PNG, JPG, JPEG) *'}
+                </label>
                 <input
                   type="file"
                   id="file"
                   name="file"
                   className="form-control file-input"
                   accept=".pdf,.png,.jpg,.jpeg"
-                  onChange={(e) => setFile(e.target.files[0] || null)}
-                  required
+                  onChange={handleFileChange}
+                  required={!isYouTubeResource}
                 />
+                <p className="success-note">
+                  Maximum file size: {MAX_RESOURCE_FILE_SIZE_MB} MB.
+                  {import.meta.env.PROD && ' Hosted uploads use temporary storage and may not persist.'}
+                </p>
               </div>
 
               {error && (
-                <p className="error-message" role="alert">
+                <p className="error-message" role="alert" style={{ color: '#dc2626', fontWeight: 500, margin: '0.5rem 0' }}>
                   {error}
                 </p>
               )}
@@ -333,9 +569,10 @@ function ShareResource({ onBack, user }) {
                 <button
                   type="submit"
                   className="btn btn-primary"
-                  disabled={uploading}
+                  disabled={!user || uploading || loadingRequest || (requestId && linkedRequest?.status !== 'Pending')}
+                  title={!user ? 'Please log in to submit a resource' : undefined}
                 >
-                  {uploading ? 'Uploading...' : 'Submit Resource'}
+                  {uploading ? 'Uploading...' : !user ? 'Log In to Submit' : 'Submit Resource'}
                 </button>
 
                 <button

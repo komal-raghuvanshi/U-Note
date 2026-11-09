@@ -19,4 +19,5 @@ Thumbs.db
 /backend/uploads/*
 !/backend/uploads/.gitkeep
 
-backend/db.py
+# Local database backup contains user data and password hashes
+/database/u_note_backup.sql

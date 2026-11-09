@@ -1,9 +1,74 @@
 import { useState, useRef, useEffect } from 'react'
 
-function Navbar({ onNavigate, currentPath = '/', user, onOpenProfile, onLogout }) {
+function NavigationIcon({ name }) {
+  const paths = {
+    home: (
+      <>
+        <path d="m3 10 9-7 9 7" />
+        <path d="M5 9v11h14V9M9 20v-6h6v6" />
+      </>
+    ),
+    about: (
+      <>
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 11v5M12 8h.01" />
+      </>
+    ),
+    resources: (
+      <>
+        <path d="M3 5.5A2.5 2.5 0 0 1 5.5 3H12v17H5.5A2.5 2.5 0 0 0 3 22V5.5ZM21 5.5A2.5 2.5 0 0 0 18.5 3H12v17h6.5A2.5 2.5 0 0 1 21 22V5.5Z" />
+      </>
+    ),
+    requests: (
+      <>
+        <rect x="5" y="4" width="14" height="17" rx="2" />
+        <path d="M9 4.5V3h6v1.5M9 10h6M9 14h6M9 18h3" />
+      </>
+    ),
+    help: (
+      <>
+        <circle cx="12" cy="12" r="9" />
+        <path d="M9.8 9a2.3 2.3 0 1 1 3.8 1.7c-1 .9-1.6 1.3-1.6 2.8M12 16.5v.1" />
+      </>
+    ),
+    contact: (
+      <>
+        <rect x="3" y="5" width="18" height="14" rx="2" />
+        <path d="m4 7 8 6 8-6" />
+      </>
+    ),
+  }
+
+  return (
+    <svg
+      aria-hidden="true"
+      className="nav-link-icon"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      {paths[name]}
+    </svg>
+  )
+}
+
+function Navbar({ onNavigate, currentPath = '/', user, onOpenProfile, onLogout, onOpenNotifications, unreadCount = 0 }) {
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [avatarFailed, setAvatarFailed] = useState(false)
   const dropdownRef = useRef(null)
+  const roleLabel = user?.role === 'admin'
+    ? 'Admin'
+    : user?.role === 'teacher'
+      ? 'Teacher'
+      : user?.role === 'student' ? 'Student' : 'Member'
+
+  useEffect(() => {
+    setAvatarFailed(false)
+  }, [user?.avatar])
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -33,7 +98,8 @@ function Navbar({ onNavigate, currentPath = '/', user, onOpenProfile, onLogout }
           className="nav-logo"
           onClick={(e) => handleLinkClick(e, '/')}
         >
-          U-NOTE
+          <img src="/favicon.png" alt="U-NOTE Logo" className="nav-logo-icon" />
+          <span className="nav-logo-text">U-NOTE</span>
         </a>
 
         <button
@@ -52,41 +118,80 @@ function Navbar({ onNavigate, currentPath = '/', user, onOpenProfile, onLogout }
             className={`nav-link ${currentPath === '/' ? 'active' : ''}`}
             onClick={(e) => handleLinkClick(e, '/')}
           >
-            Home
+            <NavigationIcon name="home" />
+            <span>Home</span>
           </a>
           <a
             href="/about"
             className={`nav-link ${currentPath === '/about' ? 'active' : ''}`}
             onClick={(e) => handleLinkClick(e, '/about')}
           >
-            About
+            <NavigationIcon name="about" />
+            <span>About</span>
           </a>
           <a
             href="/resources"
             className={`nav-link ${currentPath === '/resources' ? 'active' : ''}`}
             onClick={(e) => handleLinkClick(e, '/resources')}
           >
-            Resources
+            <NavigationIcon name="resources" />
+            <span>Resources</span>
+          </a>
+          <a
+            href="/requests"
+            className={`nav-link ${currentPath === '/requests' ? 'active' : ''}`}
+            onClick={(e) => handleLinkClick(e, '/requests')}
+          >
+            <NavigationIcon name="requests" />
+            <span>Requests</span>
           </a>
           <a
             href="/help"
             className={`nav-link ${currentPath === '/help' ? 'active' : ''}`}
             onClick={(e) => handleLinkClick(e, '/help')}
           >
-            Help
+            <NavigationIcon name="help" />
+            <span>Help</span>
           </a>
           <a
             href="/contact"
             className={`nav-link ${currentPath === '/contact' ? 'active' : ''}`}
             onClick={(e) => handleLinkClick(e, '/contact')}
           >
-            Contact Us
+            <NavigationIcon name="contact" />
+            <span>Contact Us</span>
           </a>
         </nav>
 
         <div className="nav-actions">
           {user ? (
-            <div className="user-menu-wrapper" ref={dropdownRef}>
+            <>
+              <button
+                type="button"
+                className="nav-notif-btn"
+                onClick={onOpenNotifications}
+                aria-label="View notifications"
+                title="Notifications"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  width="20"
+                  height="20"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+                  <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+                </svg>
+                {unreadCount > 0 && (
+                  <span className="notif-badge">{unreadCount > 99 ? '99+' : unreadCount}</span>
+                )}
+              </button>
+
+              <div className="user-menu-wrapper" ref={dropdownRef}>
               <button
                 type="button"
                 className="nav-avatar-btn"
@@ -95,8 +200,13 @@ function Navbar({ onNavigate, currentPath = '/', user, onOpenProfile, onLogout }
                 aria-label="User Profile Menu"
                 title={user.name}
               >
-                {user.avatar ? (
-                  <img src={user.avatar} alt={user.name} className="nav-avatar-img" />
+                {user.avatar && !avatarFailed ? (
+                  <img
+                    src={user.avatar}
+                    alt={user.name}
+                    className="nav-avatar-img"
+                    onError={() => setAvatarFailed(true)}
+                  />
                 ) : (
                   <span className="nav-avatar-fallback">
                     {user.name.charAt(0).toUpperCase()}
@@ -109,8 +219,26 @@ function Navbar({ onNavigate, currentPath = '/', user, onOpenProfile, onLogout }
                   <div className="dropdown-user-info">
                     <strong>{user.name}</strong>
                     <span>{user.email}</span>
+                    <span className={`role-badge role-badge-${user.role || 'member'}`}>
+                      {roleLabel}
+                    </span>
                   </div>
                   <div className="dropdown-divider"></div>
+                  {user.role === 'admin' && (
+                    <>
+                      <button
+                        type="button"
+                        className="dropdown-item dropdown-admin-item"
+                        onClick={() => {
+                          setDropdownOpen(false)
+                          onNavigate('/admin')
+                        }}
+                      >
+                        ⚙️ Admin Panel
+                      </button>
+                      <div className="dropdown-divider"></div>
+                    </>
+                  )}
                   <button
                     type="button"
                     className="dropdown-item"
@@ -155,6 +283,7 @@ function Navbar({ onNavigate, currentPath = '/', user, onOpenProfile, onLogout }
                 </div>
               )}
             </div>
+            </>
           ) : (
             <div className="auth-nav-buttons">
               <button
