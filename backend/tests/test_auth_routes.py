@@ -451,6 +451,251 @@ class AuthRouteTests(unittest.TestCase):
         self.assertEqual(response.status_code, 429)
         self.assertIn("Please wait", response.get_json()["error"])
 
+    # ── Forgot Password Tests ──
+    def test_forgot_password_success_sends_email(self):
+        cursor = MagicMock()
+        cursor.fetchone.side_effect = [
+            None,  # No previous OTP in cooldown
+            {"user_id": 42, "name": "Test Student", "is_blocked": 0},  # User found
+        ]
+        connection = MagicMock()
+        connection.cursor.return_value = cursor
+
+        with patch.object(auth, "get_db_connection", return_value=connection), \
+             patch.object(auth, "table_exists", return_value=True), \
+             patch.object(auth, "column_exists", return_value=True), \
+             patch.object(auth, "send_password_reset_email", return_value=(True, "sent")) as mock_send:
+            response = self.client.post("/forgot-password", json={
+                "email": "student@example.com"
+            })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.get_json()["success"])
+        mock_send.assert_called_once()
+        self.assertEqual(mock_send.call_args[0][0], "student@example.com")
+
+    def test_forgot_password_enforces_rate_limit_cooldown(self):
+        cursor = MagicMock()
+        cursor.fetchone.return_value = {
+            "created_at": datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=20)
+        }
+        connection = MagicMock()
+        connection.cursor.return_value = cursor
+
+        with patch.object(auth, "get_db_connection", return_value=connection), \
+             patch.object(auth, "table_exists", return_value=True):
+            response = self.client.post("/forgot-password", json={
+                "email": "student@example.com"
+            })
+
+        self.assertEqual(response.status_code, 429)
+        self.assertIn("Please wait", response.get_json()["error"])
+
+    def test_forgot_password_returns_generic_success_for_nonexistent_email(self):
+        cursor = MagicMock()
+        cursor.fetchone.side_effect = [
+            None,  # No cooldown
+            None,  # User not found
+        ]
+        connection = MagicMock()
+        connection.cursor.return_value = cursor
+
+        with patch.object(auth, "get_db_connection", return_value=connection), \
+             patch.object(auth, "table_exists", return_value=True), \
+             patch.object(auth, "column_exists", return_value=True), \
+             patch.object(auth, "send_password_reset_email") as mock_send:
+            response = self.client.post("/forgot-password", json={
+                "email": "unknown@example.com"
+            })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.get_json()["success"])
+        mock_send.assert_not_called()
+
+    def test_forgot_password_rejects_blocked_user(self):
+        cursor = MagicMock()
+        cursor.fetchone.side_effect = [
+            None,  # No cooldown
+            {"user_id": 99, "name": "Blocked User", "is_blocked": 1},
+        ]
+        connection = MagicMock()
+        connection.cursor.return_value = cursor
+
+        with patch.object(auth, "get_db_connection", return_value=connection), \
+             patch.object(auth, "table_exists", return_value=True), \
+             patch.object(auth, "column_exists", return_value=True):
+            response = self.client.post("/forgot-password", json={
+                "email": "blocked@example.com"
+            })
+
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("restricted", response.get_json()["error"])
+
+    # ── Reset Password Tests ──
+    def test_reset_password_success(self):
+        cursor = MagicMock()
+        cursor.fetchone.return_value = {
+            "otp_id": 1,
+            "user_id": 42,
+            "otp_hash": generate_password_hash("123456"),
+            "attempts": 0,
+            "max_attempts": 5,
+            "expires_at": datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=5),
+        }
+        connection = MagicMock()
+        connection.cursor.return_value = cursor
+
+        with patch.object(auth, "get_db_connection", return_value=connection), \
+             patch.object(auth, "table_exists", return_value=True), \
+             patch.object(auth, "column_exists", return_value=True):
+            response = self.client.post("/reset-password", json={
+                "email": "student@example.com",
+                "otp": "123456",
+                "password": "brand-new-password",
+            })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.get_json()["success"])
+        # Check that user password was updated
+        update_calls = [c for c in cursor.execute.call_args_list if "UPDATE users" in c.args[0]]
+        self.assertTrue(len(update_calls) > 0)
+
+    def test_reset_password_invalid_otp(self):
+        cursor = MagicMock()
+        cursor.fetchone.return_value = {
+            "otp_id": 1,
+            "user_id": 42,
+            "otp_hash": generate_password_hash("123456"),
+            "attempts": 1,
+            "max_attempts": 5,
+            "expires_at": datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=5),
+        }
+        connection = MagicMock()
+        connection.cursor.return_value = cursor
+
+        with patch.object(auth, "get_db_connection", return_value=connection), \
+             patch.object(auth, "table_exists", return_value=True):
+            response = self.client.post("/reset-password", json={
+                "email": "student@example.com",
+                "otp": "999999",
+                "password": "brand-new-password",
+            })
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Invalid verification code", response.get_json()["error"])
+
+    def test_reset_password_expired_otp(self):
+        cursor = MagicMock()
+        cursor.fetchone.return_value = {
+            "otp_id": 1,
+            "user_id": 42,
+            "otp_hash": generate_password_hash("123456"),
+            "attempts": 0,
+            "max_attempts": 5,
+            "expires_at": datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=1),
+        }
+        connection = MagicMock()
+        connection.cursor.return_value = cursor
+
+        with patch.object(auth, "get_db_connection", return_value=connection), \
+             patch.object(auth, "table_exists", return_value=True):
+            response = self.client.post("/reset-password", json={
+                "email": "student@example.com",
+                "otp": "123456",
+                "password": "brand-new-password",
+            })
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("expired", response.get_json()["error"])
+
+    # ── Google Login Tests ──
+    def test_google_login_not_configured_returns_503(self):
+        with patch.dict(os.environ, {"GOOGLE_CLIENT_ID": ""}):
+            response = self.client.post("/google-login", json={
+                "credential": "test-token"
+            })
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("not configured", response.get_json()["error"])
+
+    def test_google_login_existing_user(self):
+        cursor = MagicMock()
+        cursor.fetchone.side_effect = [
+            {"user_id": 10, "role": "student", "is_blocked": 0},  # check user
+            {  # _fetch_user_by_id
+                "user_id": 10,
+                "name": "Existing User",
+                "email": "existing@gmail.com",
+                "role": "student",
+                "profile_photo": None,
+                "branch": "CSE",
+                "semester": "Semester 3",
+                "is_blocked": 0,
+                "is_verified": 1,
+            }
+        ]
+        connection = MagicMock()
+        connection.cursor.return_value = cursor
+
+        google_verified = {
+            "email": "existing@gmail.com",
+            "name": "Existing User",
+            "sub": "1234567890",
+        }
+
+        with patch.dict(os.environ, {"GOOGLE_CLIENT_ID": "mock-client-id"}), \
+             patch.object(auth, "_verify_google_id_token", return_value=(google_verified, None)), \
+             patch.object(auth, "get_db_connection", return_value=connection), \
+             patch.object(auth, "column_exists", return_value=True):
+            response = self.client.post("/google-login", json={
+                "credential": "valid-google-token"
+            })
+
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json()
+        self.assertEqual(body["user"]["email"], "existing@gmail.com")
+        self.assertEqual(body["user"]["role"], "student")
+        self.assertIn("token", body)
+
+    def test_google_login_creates_new_student_account(self):
+        cursor = MagicMock()
+        cursor.lastrowid = 77
+        cursor.fetchone.side_effect = [
+            None,  # User not found
+            {  # _fetch_user_by_id
+                "user_id": 77,
+                "name": "New Google User",
+                "email": "newuser@gmail.com",
+                "role": "student",
+                "profile_photo": None,
+                "branch": None,
+                "semester": None,
+                "is_blocked": 0,
+                "is_verified": 1,
+            }
+        ]
+        connection = MagicMock()
+        connection.cursor.return_value = cursor
+
+        google_verified = {
+            "email": "newuser@gmail.com",
+            "name": "New Google User",
+            "sub": "9876543210",
+        }
+
+        with patch.dict(os.environ, {"GOOGLE_CLIENT_ID": "mock-client-id"}), \
+             patch.object(auth, "_verify_google_id_token", return_value=(google_verified, None)), \
+             patch.object(auth, "get_db_connection", return_value=connection), \
+             patch.object(auth, "column_exists", return_value=True):
+            response = self.client.post("/google-login", json={
+                "credential": "valid-google-token"
+            })
+
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json()
+        self.assertEqual(body["user"]["role"], "student")
+        self.assertEqual(body["user"]["email"], "newuser@gmail.com")
+        self.assertIn("token", body)
+
 
 if __name__ == "__main__":
     unittest.main()

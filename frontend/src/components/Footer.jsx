@@ -14,7 +14,6 @@ function Footer({ onNavigate }) {
               <img src="/favicon.png" alt="U-NOTE Logo" className="footer-logo-icon" />
               <span className="footer-logo">U-NOTE</span>
             </div>
-            <p className="footer-tagline">RGPV Notes &amp; Study Resources Platform</p>
           </div>
 
           {/* Center: Nav Links */}

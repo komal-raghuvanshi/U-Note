@@ -24,7 +24,7 @@ def _log_warning(msg):
 
 
 
-def send_otp_email(recipient_email, recipient_name, otp_code):
+def send_otp_email(recipient_email, recipient_name, otp_code, purpose="verification"):
     """
     Send a 6-digit OTP email using the configured email provider:
     1. Resend API (if RESEND_API_KEY is configured)
@@ -32,15 +32,25 @@ def send_otp_email(recipient_email, recipient_name, otp_code):
     3. SMTP (if SMTP_HOST or UNOTE_EMAIL + UNOTE_EMAIL_APP_PASSWORD are configured)
     4. Development/test fallback (logs OTP to logger)
     """
-    subject = f"Your U-NOTE Verification Code: {otp_code}"
     sender_name = os.getenv("EMAIL_SENDER_NAME", "U-NOTE")
+    is_reset = (purpose == "reset")
+    if is_reset:
+        subject = f"Your U-NOTE Password Reset Code: {otp_code}"
+        page_title = "U-NOTE Password Reset"
+        greeting_text = f"You requested to reset the password for your U-NOTE account. Please use the following 6-digit verification code to set your new password:"
+        disregard_text = "For your security, never share this code with anyone. If you didn't request a password reset, you can safely disregard this message."
+    else:
+        subject = f"Your U-NOTE Verification Code: {otp_code}"
+        page_title = "U-NOTE Verification Code"
+        greeting_text = f"Thank you for signing up for U-NOTE. Please use the following 6-digit verification code to complete your registration:"
+        disregard_text = "For your security, never share this code with anyone. If you didn't create a U-NOTE account, you can safely disregard this message."
     
     html_content = f"""
     <!DOCTYPE html>
     <html lang="en">
     <head>
       <meta charset="UTF-8">
-      <title>U-NOTE Verification Code</title>
+      <title>{page_title}</title>
       <style>
         body {{
           font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
@@ -118,12 +128,12 @@ def send_otp_email(recipient_email, recipient_name, otp_code):
         </div>
         <div class="content">
           <p>Hi <strong>{recipient_name}</strong>,</p>
-          <p>Thank you for signing up for U-NOTE. Please use the following 6-digit verification code to complete your registration:</p>
+          <p>{greeting_text}</p>
           <div class="otp-box">
             <div class="otp-code">{otp_code}</div>
             <div class="timer-note">Expires in 5 minutes</div>
           </div>
-          <p>For your security, never share this code with anyone. If you didn't create a U-NOTE account, you can safely disregard this message.</p>
+          <p>{disregard_text}</p>
         </div>
         <div class="footer">
           &copy; 2026 U-NOTE &middot; Built for RGPV Students
@@ -136,14 +146,14 @@ def send_otp_email(recipient_email, recipient_name, otp_code):
     plain_content = f"""
 Hello {recipient_name},
 
-Thank you for registering on U-NOTE.
+{greeting_text}
 
-Your 6-digit email verification code is: {otp_code}
+Your 6-digit code is: {otp_code}
 
 This code will expire in 5 minutes.
 Never share this code with anyone.
 
-If you did not request this verification, please ignore this email.
+{disregard_text}
 
 --
 U-NOTE Team
@@ -242,6 +252,11 @@ RGPV Notes & Study Resources Platform
 
     # 4. Fallback / Test / Dev Mode
     _log_info(
-        f"[DEV/TEST OTP EMAIL] To: {recipient_email} | Code: {otp_code} | User: {recipient_name}"
+        f"[DEV/TEST OTP EMAIL] To: {recipient_email} | Code: {otp_code} | User: {recipient_name} | Purpose: {purpose}"
     )
     return True, "Email delivered (dev/test fallback)"
+
+
+def send_password_reset_email(recipient_email, recipient_name, otp_code):
+    """Convenience helper to send password reset OTP email."""
+    return send_otp_email(recipient_email, recipient_name, otp_code, purpose="reset")

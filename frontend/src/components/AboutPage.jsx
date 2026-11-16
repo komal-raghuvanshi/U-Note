@@ -20,7 +20,7 @@ const teamMembers = [
     linkedinUrl: 'https://www.linkedin.com/in/sakshi-yadav-86b500331?utm_source=share_via&utm_content=profile&utm_medium=member_android',
     githubUrl: 'https://github.com/sakshiyadav18-bot',
   },
-  { name: 'Vishakha Solanki', role: '3rd Year | B.Tech AI & ML | Backend Developer', photoUrl: '', linkedinUrl: 'https://www.linkedin.com/in/vishakha-solanki-1775a832a?utm_source=share_via&utm_content=profile&utm_medium=member_android', githubUrl: 'https://github.com/solankivishakha1808-ux' },
+  { name: 'Vishakha Solanki', role: '3rd Year | B.Tech AI & ML | Backend Developer', photoUrl: '/team/vishakha_solanki.png', linkedinUrl: 'https://www.linkedin.com/in/vishakha-solanki-1775a832a?utm_source=share_via&utm_content=profile&utm_medium=member_android', githubUrl: 'https://github.com/solankivishakha1808-ux' },
 ]
 
 const offerings = [

@@ -3,6 +3,10 @@ import re
 import tempfile
 import mimetypes
 import secrets
+import json
+import urllib.request
+import urllib.error
+import urllib.parse
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
@@ -14,11 +18,11 @@ from werkzeug.utils import secure_filename
 try:
     from auth_utils import create_auth_token, require_auth
     from db import get_db_connection, column_exists, table_exists
-    from email_service import send_otp_email
+    from email_service import send_otp_email, send_password_reset_email
 except ImportError:
     from backend.auth_utils import create_auth_token, require_auth
     from backend.db import get_db_connection, column_exists, table_exists
-    from backend.email_service import send_otp_email
+    from backend.email_service import send_otp_email, send_password_reset_email
 
 
 auth_bp = Blueprint("auth", __name__)
@@ -591,6 +595,415 @@ def login():
     except Exception:
         current_app.logger.exception("Login failed")
         return jsonify({"error": "Unable to log in. Please try again."}), 500
+    finally:
+        if cursor:
+            cursor.close()
+        if connection:
+            connection.close()
+
+
+def _fetch_user_by_id(cursor, user_id):
+    has_photo = column_exists(cursor, "users", "profile_photo")
+    photo_select = "u.profile_photo," if has_photo else "NULL AS profile_photo,"
+    has_is_verified = column_exists(cursor, "users", "is_verified")
+    verified_select = "u.is_verified," if has_is_verified else "1 AS is_verified,"
+    has_blocked = column_exists(cursor, "users", "is_blocked")
+    blocked_select = "u.is_blocked," if has_blocked else "0 AS is_blocked,"
+
+    cursor.execute(
+        f"""
+        SELECT
+            u.user_id,
+            u.name,
+            u.email,
+            u.role,
+            {verified_select}
+            {blocked_select}
+            {photo_select}
+            b.branch_name AS branch,
+            s.semester_name AS semester
+        FROM users u
+        LEFT JOIN branches b ON u.branch_id = b.branch_id
+        LEFT JOIN semesters s ON u.semester_id = s.semester_id
+        WHERE u.user_id = %s
+        """,
+        (user_id,)
+    )
+    return cursor.fetchone()
+
+
+def _verify_google_id_token(credential):
+    client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+    if not client_id:
+        return None, "Google Sign-In is not configured on this server. Missing GOOGLE_CLIENT_ID."
+
+    if not isinstance(credential, str) or not credential.strip():
+        return None, "Google ID token credential is required."
+
+    url = f"https://oauth2.googleapis.com/tokeninfo?id_token={urllib.parse.quote(credential.strip())}"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "U-NOTE-Backend/1.0"})
+        with urllib.request.urlopen(req, timeout=10) as response:
+            if response.status != 200:
+                return None, "Failed to verify token with Google."
+            payload = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as error:
+        try:
+            err_data = json.loads(error.read().decode("utf-8"))
+            err_desc = err_data.get("error_description") or err_data.get("error") or "Invalid Google token"
+        except Exception:
+            err_desc = f"Google verification returned status {error.code}"
+        return None, err_desc
+    except Exception as error:
+        current_app.logger.warning(f"Google token verification error: {error}")
+        return None, "Unable to contact Google verification servers."
+
+    iss = payload.get("iss")
+    if iss not in ("accounts.google.com", "https://accounts.google.com"):
+        return None, "Invalid Google token issuer."
+
+    aud = payload.get("aud")
+    azp = payload.get("azp")
+    if aud != client_id and azp != client_id:
+        return None, "Google token audience does not match this application."
+
+    try:
+        exp = int(payload.get("exp", 0))
+        if exp < datetime.now(timezone.utc).timestamp():
+            return None, "Google authentication token has expired."
+    except (ValueError, TypeError):
+        pass
+
+    email = (payload.get("email") or "").strip().lower()
+    email_verified = payload.get("email_verified")
+    if not email or email_verified not in (True, "true", "True", 1, "1"):
+        return None, "Google account email is unverified or unavailable."
+
+    name = (payload.get("name") or "").strip() or email.split("@")[0]
+
+    return {
+        "email": email,
+        "name": name,
+        "sub": payload.get("sub"),
+        "picture": payload.get("picture"),
+    }, None
+
+
+@auth_bp.route("/forgot-password", methods=["POST"])
+def forgot_password():
+    unavailable = _session_unavailable()
+    if unavailable:
+        return unavailable
+
+    data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict):
+        return jsonify({"error": "Invalid request payload"}), 400
+
+    email = data.get("email")
+    if not isinstance(email, str) or not email.strip():
+        return jsonify({"error": "Email address is required"}), 400
+
+    email = email.strip().lower()
+    if not EMAIL_PATTERN.fullmatch(email):
+        return jsonify({"error": "A valid email address is required"}), 400
+
+    connection = None
+    cursor = None
+    try:
+        connection = get_db_connection()
+        cursor = connection.cursor(dictionary=True)
+
+        # Rate limit cooldown check (60s)
+        if table_exists(cursor, "email_otps"):
+            cursor.execute(
+                """
+                SELECT created_at
+                FROM email_otps
+                WHERE email = %s
+                ORDER BY otp_id DESC
+                LIMIT 1
+                """,
+                (email,)
+            )
+            last_otp = cursor.fetchone()
+            if last_otp and last_otp.get("created_at"):
+                created_at = _as_naive_utc(last_otp["created_at"])
+                if created_at:
+                    now = datetime.now(timezone.utc).replace(tzinfo=None)
+                    elapsed = (now - created_at).total_seconds()
+                    if elapsed < OTP_RESEND_COOLDOWN_SECONDS:
+                        remaining_wait = int(OTP_RESEND_COOLDOWN_SECONDS - elapsed)
+                        return jsonify({
+                            "error": f"Please wait {max(1, remaining_wait)} seconds before requesting another code."
+                        }), 429
+
+        has_blocked = column_exists(cursor, "users", "is_blocked")
+        blocked_select = "is_blocked" if has_blocked else "0 AS is_blocked"
+        cursor.execute(f"SELECT user_id, name, {blocked_select} FROM users WHERE email = %s", (email,))
+        user = cursor.fetchone()
+
+        if user:
+            if user.get("is_blocked"):
+                return jsonify({
+                    "error": "Your account has been restricted by an administrator. Please contact support."
+                }), 403
+
+            otp = _generate_otp()
+            otp_hash = generate_password_hash(otp)
+            expires_at = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=OTP_EXPIRY_MINUTES)
+
+            if table_exists(cursor, "email_otps"):
+                cursor.execute(
+                    """
+                    UPDATE email_otps
+                    SET verified_at = UTC_TIMESTAMP()
+                    WHERE email = %s AND verified_at IS NULL
+                    """,
+                    (email,)
+                )
+                cursor.execute(
+                    """
+                    INSERT INTO email_otps
+                        (user_id, email, otp_hash, attempts, max_attempts, expires_at)
+                    VALUES (%s, %s, %s, 0, %s, %s)
+                    """,
+                    (user["user_id"], email, otp_hash, OTP_MAX_ATTEMPTS, expires_at)
+                )
+            connection.commit()
+            send_password_reset_email(email, user["name"], otp)
+
+        # Generic success to prevent account enumeration
+        return jsonify({
+            "success": True,
+            "message": "If an account with this email exists, a 6-digit verification code has been sent."
+        }), 200
+
+    except Exception:
+        if connection:
+            connection.rollback()
+        current_app.logger.exception("Forgot password request failed")
+        return jsonify({"error": "Unable to process password reset request. Please try again."}), 500
+    finally:
+        if cursor:
+            cursor.close()
+        if connection:
+            connection.close()
+
+
+@auth_bp.route("/reset-password", methods=["POST"])
+def reset_password():
+    unavailable = _session_unavailable()
+    if unavailable:
+        return unavailable
+
+    data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict):
+        return jsonify({"error": "Invalid request payload"}), 400
+
+    email = data.get("email")
+    otp = data.get("otp")
+    password = data.get("password")
+
+    if not all(isinstance(v, str) for v in (email, otp, password)):
+        return jsonify({"error": "Email, verification code, and new password are required"}), 400
+
+    email = email.strip().lower()
+    otp = otp.strip()
+    password = password.strip()
+
+    if not EMAIL_PATTERN.fullmatch(email):
+        return jsonify({"error": "A valid email address is required"}), 400
+
+    if not re.fullmatch(r"^\d{6}$", otp):
+        return jsonify({"error": "Please enter a valid 6-digit numeric verification code"}), 400
+
+    if len(password) < 8 or len(password) > 128:
+        return jsonify({"error": "Password must be between 8 and 128 characters"}), 400
+
+    connection = None
+    cursor = None
+    try:
+        connection = get_db_connection()
+        cursor = connection.cursor(dictionary=True)
+
+        if not table_exists(cursor, "email_otps"):
+            return jsonify({"error": "Verification service is not available"}), 503
+
+        cursor.execute(
+            """
+            SELECT otp_id, user_id, otp_hash, attempts, max_attempts, expires_at
+            FROM email_otps
+            WHERE email = %s AND verified_at IS NULL
+            ORDER BY otp_id DESC
+            LIMIT 1
+            """,
+            (email,)
+        )
+        otp_row = cursor.fetchone()
+        if not otp_row:
+            return jsonify({
+                "error": "No active password reset code found for this email. Please request a new code."
+            }), 400
+
+        # Check attempts limit
+        if otp_row["attempts"] >= otp_row["max_attempts"]:
+            return jsonify({
+                "error": "Too many incorrect attempts. Please request a new verification code."
+            }), 429
+
+        # Check expiration
+        expires_at = _as_naive_utc(otp_row.get("expires_at"))
+        if expires_at and expires_at < datetime.now(timezone.utc).replace(tzinfo=None):
+            return jsonify({
+                "error": "Verification code has expired. Please request a new code."
+            }), 400
+
+        # Check OTP match
+        if not check_password_hash(otp_row["otp_hash"], otp):
+            new_attempts = otp_row["attempts"] + 1
+            cursor.execute(
+                "UPDATE email_otps SET attempts = %s WHERE otp_id = %s",
+                (new_attempts, otp_row["otp_id"])
+            )
+            connection.commit()
+            remaining = max(0, otp_row["max_attempts"] - new_attempts)
+            return jsonify({
+                "error": f"Invalid verification code. {remaining} attempt(s) remaining."
+            }), 400
+
+        # Invalidate OTP so it cannot be reused
+        cursor.execute(
+            "UPDATE email_otps SET verified_at = UTC_TIMESTAMP() WHERE otp_id = %s",
+            (otp_row["otp_id"],)
+        )
+
+        # Update password & mark verified
+        has_is_verified = column_exists(cursor, "users", "is_verified")
+        if has_is_verified:
+            cursor.execute(
+                "UPDATE users SET password_hash = %s, is_verified = 1 WHERE user_id = %s",
+                (generate_password_hash(password), otp_row["user_id"])
+            )
+        else:
+            cursor.execute(
+                "UPDATE users SET password_hash = %s WHERE user_id = %s",
+                (generate_password_hash(password), otp_row["user_id"])
+            )
+
+        connection.commit()
+
+        return jsonify({
+            "success": True,
+            "message": "Password reset successfully! You can now log in with your new password."
+        }), 200
+
+    except Exception:
+        if connection:
+            connection.rollback()
+        current_app.logger.exception("Password reset failed")
+        return jsonify({"error": "Unable to reset password. Please try again."}), 500
+    finally:
+        if cursor:
+            cursor.close()
+        if connection:
+            connection.close()
+
+
+@auth_bp.route("/google-login", methods=["POST"])
+def google_login():
+    unavailable = _session_unavailable()
+    if unavailable:
+        return unavailable
+
+    if not os.getenv("GOOGLE_CLIENT_ID", "").strip():
+        return jsonify({
+            "error": "Google Sign-In is not configured on this server. Please set GOOGLE_CLIENT_ID in the backend environment."
+        }), 503
+
+    data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict):
+        return jsonify({"error": "Invalid request payload"}), 400
+
+    credential = data.get("credential")
+    if not credential:
+        return jsonify({"error": "Google credential token is required"}), 400
+
+    google_user, verify_error = _verify_google_id_token(credential)
+    if not google_user:
+        return jsonify({"error": verify_error or "Invalid Google credential"}), 401
+
+    email = google_user["email"]
+    name = google_user["name"][:100]
+
+    connection = None
+    cursor = None
+    try:
+        connection = get_db_connection()
+        cursor = connection.cursor(dictionary=True)
+
+        has_blocked = column_exists(cursor, "users", "is_blocked")
+        has_is_verified = column_exists(cursor, "users", "is_verified")
+        blocked_select = "is_blocked" if has_blocked else "0 AS is_blocked"
+
+        cursor.execute(f"SELECT user_id, role, {blocked_select} FROM users WHERE email = %s", (email,))
+        existing_user = cursor.fetchone()
+
+        if existing_user:
+            user_id = existing_user["user_id"]
+            if existing_user.get("is_blocked"):
+                return jsonify({
+                    "error": "Your account has been restricted by an administrator. Please contact support."
+                }), 403
+
+            # Ensure account is marked verified since Google verified it
+            if has_is_verified:
+                cursor.execute("UPDATE users SET is_verified = 1 WHERE user_id = %s", (user_id,))
+                connection.commit()
+        else:
+            # Create new student account (never grant teacher or admin!)
+            dummy_password_hash = generate_password_hash(secrets.token_urlsafe(32))
+            if has_is_verified and has_blocked:
+                cursor.execute(
+                    """
+                    INSERT INTO users (name, email, password_hash, role, is_verified, is_blocked)
+                    VALUES (%s, %s, %s, 'student', 1, 0)
+                    """,
+                    (name, email, dummy_password_hash)
+                )
+            elif has_is_verified:
+                cursor.execute(
+                    """
+                    INSERT INTO users (name, email, password_hash, role, is_verified)
+                    VALUES (%s, %s, %s, 'student', 1)
+                    """,
+                    (name, email, dummy_password_hash)
+                )
+            else:
+                cursor.execute(
+                    """
+                    INSERT INTO users (name, email, password_hash, role)
+                    VALUES (%s, %s, %s, 'student')
+                    """,
+                    (name, email, dummy_password_hash)
+                )
+            user_id = cursor.lastrowid
+            connection.commit()
+
+        user_row = _fetch_user_by_id(cursor, user_id)
+        if not user_row:
+            return jsonify({"error": "Unable to load user profile"}), 500
+
+        return jsonify({
+            "message": "Google Sign-In successful",
+            "user": _user_payload(user_row),
+            "token": create_auth_token(user_id)
+        }), 200
+
+    except Exception:
+        if connection:
+            connection.rollback()
+        current_app.logger.exception("Google login processing failed")
+        return jsonify({"error": "Unable to complete Google Sign-In. Please try again."}), 500
     finally:
         if cursor:
             cursor.close()

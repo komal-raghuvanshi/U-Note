@@ -21,3 +21,6 @@ Thumbs.db
 
 # Local database backup contains user data and password hashes
 /database/u_note_backup.sql
+/database/backup_*.sql
+database/backup_*.sql
+scratch_*.py

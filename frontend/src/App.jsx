@@ -288,6 +288,15 @@ function App() {
           />
         )
 
+      case '/forgot-password':
+        return (
+          <AuthPages
+            mode="forgot"
+            onNavigate={navigate}
+            onLoginSuccess={handleLoginSuccess}
+          />
+        )
+
       case '/signup':
         return (
           <AuthPages
