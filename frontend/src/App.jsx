@@ -350,7 +350,7 @@ function App() {
 
                 <div className="resources-grid">
                   {previewResources.length > 0 ? (
-                    previewResources.slice(0, 4).map((resource) => (
+                    previewResources.slice(0, 6).map((resource) => (
                       <div
                         key={resource.id}
                         className="resource-card"
@@ -369,8 +369,7 @@ function App() {
                           {resource.type}
                           {(resource.exam_year || resource.exam_session) && (
                             <span
-                              className="pyq-session-badge"
-                              className="pyq-session-badge-inline"
+                              className="pyq-session-badge pyq-session-badge-inline"
                             >
                               {[resource.exam_session, resource.exam_year].filter(Boolean).join(' ')}
                             </span>
